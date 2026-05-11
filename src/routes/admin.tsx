@@ -46,7 +46,11 @@ function AdminPage() {
               effective.map((r) => <span key={r} className="pill pill-info">{ROLE_LABEL[r as AppRole]}</span>)
             )}
           </div>
-          {demoRole && <div className="mt-2 text-xs text-muted-foreground">Currently in demo mode — viewing as {ROLE_LABEL[demoRole]}</div>}
+          {auth.demoRole && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              Currently in demo mode — viewing as {ROLE_LABEL[auth.demoRole]}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
