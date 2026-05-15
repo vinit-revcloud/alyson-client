@@ -26,9 +26,10 @@ import {
   Cloud,
   CloudOff,
   Loader2,
+  History,
 } from "lucide-react";
 import type { EmployeeFull } from "@/lib/queries";
-import { fmtCurrency } from "@/lib/format";
+import { fmtCurrency, fmtRelative } from "@/lib/format";
 import { toast } from "sonner";
 import {
   applyOrgChartEvent,
@@ -183,7 +184,8 @@ function PersonNode({ data }: NodeProps<EmpNode["data"]>) {
 
 const nodeTypes = { person: PersonNode };
 
-const LAYOUT_KEY = "alyson-orgchart-layout-v2";
+const LAYOUT_KEY = "alyson-orgchart-layout-v3";
+const ROSTER_FP_KEY = "alyson-orgchart-roster-fp-v3";
 
 type CachedChart = {
   positions: Record<string, { x: number; y: number }>;
@@ -227,6 +229,59 @@ function saveCachedChart(chart: CachedChart) {
   } catch {
     // ignore
   }
+}
+
+function rosterFingerprint(employees: EmployeeFull[]) {
+  return employees
+    .map((e) => e.id)
+    .sort()
+    .join("|");
+}
+
+/** Drop stale overrides from old rosters or broken manager references. */
+function sanitizeManagerOverrides(
+  overrides: Record<string, string | null>,
+  employees: EmployeeFull[],
+): Record<string, string | null> {
+  const ids = new Set(employees.map((e) => e.id));
+  const out: Record<string, string | null> = {};
+  for (const [empId, mgrId] of Object.entries(overrides)) {
+    if (!ids.has(empId)) continue;
+    if (mgrId !== null && !ids.has(mgrId)) continue;
+    out[empId] = mgrId;
+  }
+  return out;
+}
+
+/** Keep dummy/add-on people reporting to the right manager after roster ID changes. */
+function reconcileAddedPeopleManagers(added: EmployeeFull[], roster: EmployeeFull[]): EmployeeFull[] {
+  const byId = new Map(roster.map((e) => [e.id, e]));
+  const findByName = (hint: string) =>
+    roster.find((e) => e.full_name.toLowerCase().includes(hint.toLowerCase())) ?? null;
+
+  return added.map((a) => {
+    if (a.manager_id && byId.has(a.manager_id)) return a;
+    const thiru = findByName("thirumalai");
+    if (thiru && (a.manager_id?.includes("thirumalai") || a.email?.includes("dummy"))) {
+      return { ...a, manager_id: thiru.id };
+    }
+    return a;
+  });
+}
+
+function mergeTerminationRecords(
+  a: OrgChartTerminationRecord[],
+  b: OrgChartTerminationRecord[],
+): OrgChartTerminationRecord[] {
+  const map = new Map<string, OrgChartTerminationRecord>();
+  for (const t of [...a, ...b]) map.set(t.employeeId, t);
+  return [...map.values()].sort((x, y) => y.terminatedAt.localeCompare(x.terminatedAt));
+}
+
+function mergeAddedPeople(a: EmployeeFull[], b: EmployeeFull[]): EmployeeFull[] {
+  const map = new Map<string, EmployeeFull>();
+  for (const p of [...a, ...b]) map.set(p.id, p);
+  return [...map.values()];
 }
 
 type EditCtx = {
@@ -700,10 +755,13 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
 
   const [terminateTargetId, setTerminateTargetId] = useState<string | null>(null);
   const [addPersonOpen, setAddPersonOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("loading");
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const hydratedRef = useRef(false);
+  const employeesRef = useRef(employees);
+  employeesRef.current = employees;
 
   const canEditNow = canEdit && editMode;
 
@@ -725,6 +783,17 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
     return out;
   }, [employees, addedEmployees, terminatedIds]);
 
+  const activeAdditions = useMemo(
+    () => addedEmployees.filter((a) => !terminatedIds.has(a.id)),
+    [addedEmployees, terminatedIds],
+  );
+
+  const managerNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const e of [...employees, ...addedEmployees]) m.set(e.id, e.full_name);
+    return m;
+  }, [employees, addedEmployees]);
+
   const handlePick = useCallback((id: string) => setHighlightId(id), []);
 
   useEffect(() => {
@@ -739,17 +808,26 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
     getOrgChartFromS3()
       .then((snap) => {
         if (cancelled) return;
-        setLayoutStore(snap.positions ?? {});
-        setManagerOverrides(snap.managerOverrides ?? {});
-        setTerminations(snap.terminated ?? []);
-        setAddedEmployees(snap.added ?? []);
+        const mergedOverrides = sanitizeManagerOverrides(
+          { ...cached.managerOverrides, ...(snap.managerOverrides ?? {}) },
+          employeesRef.current,
+        );
+        const mergedTerms = mergeTerminationRecords(snap.terminated ?? [], cached.terminations);
+        const mergedAdded = reconcileAddedPeopleManagers(
+          mergeAddedPeople(snap.added ?? [], cached.added),
+          employeesRef.current,
+        );
+        setLayoutStore(snap.positions ?? cached.positions);
+        setManagerOverrides(mergedOverrides);
+        setTerminations(mergedTerms);
+        setAddedEmployees(mergedAdded);
         setLastSyncedAt(snap.updatedAt);
         setSyncStatus("synced");
         saveCachedChart({
           positions: snap.positions ?? {},
-          managerOverrides: snap.managerOverrides ?? {},
-          terminations: snap.terminated ?? [],
-          added: snap.added ?? [],
+          managerOverrides: mergedOverrides,
+          terminations: mergedTerms,
+          added: mergedAdded,
         });
         hydratedRef.current = true;
       })
@@ -765,6 +843,17 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
       cancelled = true;
     };
   }, []);
+
+  // Track roster version — never wipe S3-backed additions/terminations from the UI.
+  useEffect(() => {
+    if (typeof window === "undefined" || !employees.length) return;
+    localStorage.setItem(ROSTER_FP_KEY, rosterFingerprint(employees));
+  }, [employees]);
+
+  useEffect(() => {
+    setManagerOverrides((prev) => sanitizeManagerOverrides(prev, effectiveEmployees));
+    setAddedEmployees((prev) => reconcileAddedPeopleManagers(prev, employees));
+  }, [effectiveEmployees, employees]);
 
   const persistRef = useRef({
     managerOverrides,
@@ -873,9 +962,11 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
     };
 
     const nextTerminations = [...terminations.filter((t) => t.employeeId !== targetId), record];
+    const nextAdded = addedEmployees.filter((e) => e.id !== targetId);
 
     setManagerOverrides(nextOverrides);
     setTerminations(nextTerminations);
+    setAddedEmployees(nextAdded);
     setPendingChanges((c) => c + 1);
     setTerminateTargetId(null);
     if (highlightId === targetId) setHighlightId(null);
@@ -887,9 +978,9 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
     void persistEvent(
       "terminate",
       { ...record, reparentedFromIds: Object.keys(nextOverrides).filter((id) => nextOverrides[id] === previousManagerId && managerOverrides[id] !== previousManagerId) },
-      { managerOverrides: nextOverrides, terminations: nextTerminations },
+      { managerOverrides: nextOverrides, terminations: nextTerminations, added: nextAdded },
     );
-  }, [terminateTarget, managerOverrides, effectiveEmployees, highlightId, terminations, persistEvent]);
+  }, [terminateTarget, managerOverrides, effectiveEmployees, highlightId, terminations, addedEmployees, persistEvent]);
 
   const addPerson = useCallback(
     (emp: EmployeeFull) => {
@@ -1144,6 +1235,25 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
           </button>
         )}
         <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setHistoryOpen((o) => !o)}
+            className={
+              "h-8 px-2.5 rounded-md border text-xs flex items-center gap-1.5 " +
+              (historyOpen
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border hover:bg-muted")
+            }
+            title="People you added and terminated (stored in S3)"
+          >
+            <History className="h-3.5 w-3.5" />
+            Chart records
+            {(activeAdditions.length > 0 || terminations.length > 0) && (
+              <span className="rounded-full bg-muted px-1.5 text-[10px] font-medium">
+                {activeAdditions.length + terminations.length}
+              </span>
+            )}
+          </button>
           <SyncIndicator status={syncStatus} lastSyncedAt={lastSyncedAt} />
           {pendingChanges > 0 && (
             <span className="pill pill-warning">{pendingChanges} pending</span>
@@ -1211,23 +1321,28 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
                 onClick={async () => {
                   if (typeof window !== "undefined") {
                     const ok = window.confirm(
-                      "Discard ALL draft changes (manager overrides, terminations, dummy people, positions)? This will also clear the cloud snapshot.",
+                      "Clear draft layout and manager overrides? Terminations, additions, and full audit history stay in S3. A full snapshot is archived before anything changes.",
                     );
                     if (!ok) return;
                   }
                   setLayoutStore({});
                   setManagerOverrides({});
-                  setTerminations([]);
-                  setAddedEmployees([]);
                   setPendingChanges(0);
                   setEditMode(false);
-                  saveCachedChart({ positions: {}, managerOverrides: {}, terminations: [], added: [] });
+                  saveCachedChart({
+                    positions: {},
+                    managerOverrides: {},
+                    terminations,
+                    added: addedEmployees,
+                  });
                   setSyncStatus("saving");
                   try {
                     const r = await resetOrgChartOnS3();
                     setLastSyncedAt(r.updatedAt);
                     setSyncStatus("synced");
-                    toast.success("Draft changes discarded");
+                    toast.success("Draft layout cleared", {
+                      description: "Overrides reset in S3. Terminations and audit log preserved.",
+                    });
                   } catch (err) {
                     setSyncStatus("error");
                     const msg = err instanceof Response ? await err.text() : err instanceof Error ? err.message : "Unknown error";
@@ -1235,7 +1350,7 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
                   }
                 }}
                 className="h-8 w-8 grid place-items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted"
-                title="Reset draft"
+                title="Clear draft layout (archives first; never deletes audit log)"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
               </button>
@@ -1250,6 +1365,52 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
           ) : null}
         </div>
       </div>
+      {historyOpen && (
+        <div className="border-b border-border bg-muted/20 px-4 py-3 grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[200px] overflow-y-auto">
+          <div>
+            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
+              <UserPlus className="h-3 w-3" /> Added on chart ({activeAdditions.length})
+            </div>
+            {activeAdditions.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground">No custom additions.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {activeAdditions.map((a) => (
+                  <li key={a.id} className="text-[12px] flex justify-between gap-2">
+                    <span className="truncate font-medium">{a.full_name}</span>
+                    <span className="text-muted-foreground shrink-0">
+                      → {managerNameById.get(a.manager_id ?? "") ?? "—"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1">
+              <UserMinus className="h-3 w-3" /> Terminated / removed ({terminations.length})
+            </div>
+            {terminations.length === 0 ? (
+              <p className="text-[12px] text-muted-foreground">No terminations recorded.</p>
+            ) : (
+              <ul className="space-y-1.5">
+                {terminations.map((t) => (
+                  <li key={t.employeeId} className="text-[12px]">
+                    <div className="flex justify-between gap-2">
+                      <span className="truncate font-medium">{t.fullName}</span>
+                      <span className="text-muted-foreground shrink-0">{fmtRelative(t.terminatedAt)}</span>
+                    </div>
+                    <div className="text-[10.5px] text-muted-foreground">
+                      Was under {managerNameById.get(t.previousManagerId ?? "") ?? "—"}
+                      {t.isDummy ? " · dummy" : ""}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
       <div className="flex-1 min-h-0">
         <ReactFlow
           nodes={nodes}

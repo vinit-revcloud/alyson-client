@@ -4,13 +4,14 @@ import { fetchOverview, type EmployeeFull } from "@/lib/queries";
 import { PageHeader, EmptyState } from "@/components/AppShell";
 import { PageSkeleton } from "@/components/Skeleton";
 import { fmtCurrency } from "@/lib/format";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, Users, LayoutGrid, Network, Plus } from "lucide-react";
 import { OrgChart } from "@/components/OrgChart";
 import { EmployeeDrawer } from "@/components/drawers/EmployeeDrawer";
 import { CreateUserDrawer } from "@/components/drawers/CreateUserDrawer";
 import { useAuth } from "@/lib/auth";
 import { syncHrOverviewToS3 } from "@/lib/hr-s3-overview-functions";
+import { persistOrgChartRosterToS3 } from "@/lib/orgchart-functions";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/team")({
@@ -34,8 +35,28 @@ function TeamPage() {
   const auth = useAuth();
   const isSuperAdmin = auth.hasRole("super_admin");
 
+  useEffect(() => {
+    if (!data?.employees?.length) return;
+    void persistOrgChartRosterToS3({
+      data: {
+        source: "revcloud",
+        employees: data.employees.map((e) => ({
+          id: e.id,
+          full_name: e.full_name,
+          email: e.email,
+          role: e.role,
+          level: e.level,
+          department_id: e.department_id,
+          department_name: e.department_name,
+          manager_id: (e as EmployeeFull & { manager_id?: string | null }).manager_id ?? null,
+          manager_name: (e as EmployeeFull & { manager_name?: string | null }).manager_name ?? null,
+        })),
+      },
+    });
+  }, [data?.employees]);
+
   const syncToS3 = useMutation({
-    mutationFn: async (source: "demo" | "supabase") => {
+    mutationFn: async (source: "revcloud" | "supabase") => {
       return await syncHrOverviewToS3({ data: { source } });
     },
     onSuccess: (r) => {
@@ -89,7 +110,13 @@ function TeamPage() {
 
   const filtered = data.employees.filter((e) => {
     if (dept !== "all" && e.department_id !== dept) return false;
-    if (q && !e.full_name.toLowerCase().includes(q.toLowerCase()) && !e.role.toLowerCase().includes(q.toLowerCase())) return false;
+    if (
+      q &&
+      !e.full_name.toLowerCase().includes(q.toLowerCase()) &&
+      !e.role.toLowerCase().includes(q.toLowerCase()) &&
+      !e.email.toLowerCase().includes(q.toLowerCase())
+    )
+      return false;
     return true;
   });
 
@@ -103,12 +130,12 @@ function TeamPage() {
           <div className="flex items-center gap-2">
             {auth.hasRole("super_admin") && (
               <button
-                onClick={() => syncToS3.mutate("demo")}
+                onClick={() => syncToS3.mutate("revcloud")}
                 disabled={syncToS3.isPending}
                 className="h-7 px-2.5 rounded-md border border-border bg-paper text-[11.5px] font-medium inline-flex items-center gap-1.5 disabled:opacity-60"
-                title="Write demo team snapshot to S3 (creates bucket if missing)"
+                title="Write RevCloud team roster to S3 (creates bucket if missing)"
               >
-                {syncToS3.isPending ? "Syncing…" : "Sync demo → S3"}
+                {syncToS3.isPending ? "Syncing…" : "Sync roster → S3"}
               </button>
             )}
             {auth.hasRole("super_admin") && (
@@ -170,6 +197,7 @@ function TeamPage() {
                         <div className="min-w-0 flex-1">
                           <div className="font-medium text-[14px] truncate">{e.full_name}</div>
                           <div className="text-[12px] text-muted-foreground truncate">{e.role}</div>
+                          <div className="text-[11px] text-muted-foreground/80 truncate">{e.email}</div>
                         </div>
                       </div>
                       <div className="mt-3 flex items-center gap-2 text-[11px] flex-wrap">
@@ -195,6 +223,7 @@ function TeamPage() {
                         <div className="min-w-0 flex-1">
                           <div className="font-medium text-[14px] truncate">{e.full_name}</div>
                           <div className="text-[12px] text-muted-foreground truncate">{e.role}</div>
+                          <div className="text-[11px] text-muted-foreground/80 truncate">{e.email}</div>
                         </div>
                       </div>
                       <div className="mt-3 flex items-center gap-2 text-[11px] flex-wrap">

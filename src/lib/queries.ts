@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getHrOverviewFromS3 } from "@/lib/hr-s3-overview-functions";
-import { demoOverviewParts, fetchOverviewPartsFromSupabase } from "@/lib/queries-hr-parts";
+import { fetchOverviewPartsFromSupabase } from "@/lib/queries-hr-parts";
+import { isGenericPlaceholderRoster, revcloudOverviewParts } from "@/lib/revcloud-overview";
 
 export type Department = { id: string; name: string };
 export type Employee = {
@@ -74,6 +75,40 @@ function pickManagerName(raw: unknown): string | null {
   return first || null;
 }
 
+/** Short manager labels in the roster → canonical full names in the employee list. */
+const MANAGER_NAME_ALIASES: Record<string, string> = {
+  bill: "bill",
+  omer: "muhammad omer affan",
+  zaman: "muhammad zaman",
+  kumail: "syed m kumail",
+  mohita: "mohita yadav",
+  arman: "arman verma",
+  sabtain: "sabtain ashiq",
+  "atif ali": "atif ali",
+  yash: "yash patel",
+  om: "om podey",
+};
+
+function resolveManagerId(managerName: string | null, employees: Employee[], byName: Map<string, string>): string | null {
+  if (!managerName) return null;
+  let managerNorm = normalizeName(managerName);
+  if (MANAGER_NAME_ALIASES[managerNorm]) managerNorm = MANAGER_NAME_ALIASES[managerNorm]!;
+
+  const exact = byName.get(managerNorm);
+  if (exact) return exact;
+
+  const matches = employees.filter((x) => {
+    const n = normalizeName(x.full_name);
+    return n === managerNorm || n.startsWith(managerNorm + " ") || n.endsWith(" " + managerNorm);
+  });
+  if (matches.length === 1) return matches[0]!.id;
+  if (matches.length > 1) {
+    const best = matches.find((x) => normalizeName(x.full_name) === managerNorm);
+    if (best) return best.id;
+  }
+  return null;
+}
+
 function withManagerIds(employees: Employee[]) {
   const byName = new Map<string, string>();
   for (const e of employees) {
@@ -82,8 +117,14 @@ function withManagerIds(employees: Employee[]) {
   }
 
   return employees.map((e) => {
-    const anyE = e as any;
-    const managerNameRaw = anyE.manager_name ?? anyE.manager ?? anyE.Manager ?? anyE.reports_to ?? anyE.reportsTo;
+    const anyE = e as Employee & {
+      manager?: string;
+      Manager?: string;
+      reports_to?: string;
+      reportsTo?: string;
+    };
+    const managerNameRaw =
+      anyE.manager_name ?? anyE.manager ?? anyE.Manager ?? anyE.reports_to ?? anyE.reportsTo;
     const managerName = pickManagerName(managerNameRaw);
     const self = normalizeName(e.full_name);
     const managerNorm = normalizeName(managerName);
@@ -93,16 +134,29 @@ function withManagerIds(employees: Employee[]) {
       return { ...e, manager_id: anyE.manager_id ?? null, manager_name: managerName ?? null };
     }
 
-    let managerId = byName.get(managerNorm) ?? null;
-    // Fuzzy fallback: "Omer" should match "Muhammad Omer Affan", etc.
-    if (!managerId && managerNorm) {
-      const matches = employees
-        .filter((x) => normalizeName(x.full_name).includes(managerNorm))
-        .map((x) => x.id);
-      if (matches.length === 1) managerId = matches[0] ?? null;
-    }
-    // If a manager name exists but we can't resolve it, keep as root (still renders)
+    const managerId = resolveManagerId(managerName, employees, byName);
     return { ...e, manager_id: anyE.manager_id ?? managerId, manager_name: managerName };
+  });
+}
+
+function overviewFromRevcloud() {
+  const parts = revcloudOverviewParts();
+  return toOverviewFull({
+    departments: parts.departments,
+    employees: withManagerIds(parts.employees),
+    compensation: parts.compensation,
+    history: parts.history,
+  });
+}
+
+function overviewFromS3Snap(snap: Awaited<ReturnType<typeof getHrOverviewFromS3>>) {
+  const employees = snap.employees as Employee[];
+  if (isGenericPlaceholderRoster(employees)) return overviewFromRevcloud();
+  return toOverviewFull({
+    departments: snap.departments,
+    employees: withManagerIds(employees),
+    compensation: snap.compensation,
+    history: snap.history,
   });
 }
 
@@ -142,84 +196,29 @@ export async function fetchOverview() {
     .trim()
     .toLowerCase();
 
-  const demoMode =
-    String(import.meta.env.VITE_DEMO_MODE ?? "")
-      .trim()
-      .toLowerCase() === "true";
-
-  // Auto-prefer S3 snapshot when available.
-  //
-  // Why: deployments often forget to set VITE_HR_OVERVIEW_SOURCE at build time, which causes
-  // Team to silently fall back to Supabase/demo data. Since S3 snapshot reads are server-side,
-  // we can probe S3 first and fall back if unavailable.
-  if (!overviewSource) {
+  // Optional: read live rows from Supabase (writes still go through server functions).
+  if (overviewSource === "supabase") {
     try {
-      const snap = await getHrOverviewFromS3();
-      if ((snap.employees?.length ?? 0) > 0) {
+      const parts = await fetchOverviewPartsFromSupabase();
+      if ((parts.employees?.length ?? 0) > 0) {
         return toOverviewFull({
-          departments: snap.departments,
-          employees: withManagerIds(snap.employees as Employee[]),
-          compensation: snap.compensation,
-          history: snap.history,
+          departments: parts.departments,
+          employees: withManagerIds(parts.employees),
+          compensation: parts.compensation,
+          history: parts.history,
         });
       }
     } catch {
-      // ignore and continue to configured modes below
+      // fall through to S3
     }
   }
 
-  // If explicitly configured, always use S3 snapshot (recommended for "dummy data" deployments).
-  // This avoids any Supabase dependency for Team/Overview reads.
-  if (overviewSource === "s3") {
-    const snap = await getHrOverviewFromS3();
-    return toOverviewFull({
-      departments: snap.departments,
-      employees: withManagerIds(snap.employees as Employee[]),
-      compensation: snap.compensation,
-      history: snap.history,
-    });
-  }
-
-  // Demo mode = local dummy dataset (no Supabase calls).
-  if (demoMode) return toOverviewFull(demoOverviewParts());
-
-  const s3Fallback =
-    String(import.meta.env.VITE_HR_S3_FALLBACK ?? "")
-      .trim()
-      .toLowerCase() === "true";
-
+  // Default: S3 is the canonical store (auto-seeds RevCloud roster if missing).
   try {
-    // Primary source: Supabase (normal mode)
-    const parts = await fetchOverviewPartsFromSupabase();
-    // If Supabase returns "empty but not error", prefer S3 snapshot so Team doesn't look blank.
-    // This is common in demo/staging deployments where Supabase tables exist but aren't seeded.
-    if ((parts.employees?.length ?? 0) === 0) {
-      try {
-        const snap = await getHrOverviewFromS3();
-        if ((snap.employees?.length ?? 0) > 0) {
-          return toOverviewFull({
-            departments: snap.departments,
-            employees: withManagerIds(snap.employees as Employee[]),
-            compensation: snap.compensation,
-            history: snap.history,
-          });
-        }
-      } catch {
-        // Ignore S3 errors here and keep the Supabase result.
-      }
-    }
-
-    return toOverviewFull(parts);
-  } catch (err) {
-    if (!s3Fallback) throw err;
-    // Fallback: S3 snapshot (helps in deployments where Supabase is flaky/blocked)
     const snap = await getHrOverviewFromS3();
-    return toOverviewFull({
-      departments: snap.departments,
-      employees: withManagerIds(snap.employees as Employee[]),
-      compensation: snap.compensation,
-      history: snap.history,
-    });
+    return overviewFromS3Snap(snap);
+  } catch {
+    return overviewFromRevcloud();
   }
 }
 

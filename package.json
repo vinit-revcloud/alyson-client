@@ -11,7 +11,9 @@
     "build:dev": "dotenv -e .env -- vite build --mode development",
     "preview": "dotenv -e .env -- vite preview --port 3000 --strictPort",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "seed:revcloud": "dotenv -e .env -- node scripts/seed-revcloud-overview.mjs",
+    "inspect:orgchart": "npx dotenv-cli -e .env -- node scripts/inspect-orgchart-s3.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1043.0",
@@ -62,6 +64,7 @@
     "react-day-picker": "^9.14.0",
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.71.2",
+    "react-is": "^19.2.0",
     "react-resizable-panels": "^4.6.5",
     "reactflow": "^11.11.4",
     "recharts": "^3.8.1",

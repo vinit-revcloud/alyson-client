@@ -3,6 +3,7 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   readOrgChartFromS3,
   writeOrgChartToS3,
+  writeOrgChartRosterToS3,
   resetOrgChartOnS3 as resetOrgChartImpl,
   type OrgChartAuditEvent,
 } from "@/lib/orgchart-s3.server";
@@ -127,6 +128,26 @@ export const applyOrgChartEvent = createServerFn({ method: "POST" })
       const msg = err instanceof Error ? err.message : "Failed to persist org chart event";
       throw new Response(msg, { status: 500 });
     }
+  });
+
+const RosterEmployeeSchema = z.object({
+  id: z.string(),
+  full_name: z.string(),
+  email: z.string(),
+  role: z.string(),
+  level: z.string(),
+  department_id: z.string(),
+  department_name: z.string(),
+  manager_id: z.string().nullable().optional(),
+  manager_name: z.string().nullable().optional(),
+});
+
+export const persistOrgChartRosterToS3 = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) =>
+    z.object({ employees: z.array(RosterEmployeeSchema), source: z.string().optional() }).parse(data),
+  )
+  .handler(async ({ data }) => {
+    return await writeOrgChartRosterToS3(data.employees, data.source ?? "revcloud");
   });
 
 export const resetOrgChartOnS3 = createServerFn({ method: "POST" }).handler(async () => {

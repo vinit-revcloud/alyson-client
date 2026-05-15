@@ -7,6 +7,7 @@ import {
 } from "@aws-sdk/client-s3";
 import type { Readable } from "node:stream";
 import type { EmployeeFull } from "@/lib/queries";
+import { archiveObjectKey, archiveS3JsonBeforeWrite } from "@/lib/s3-archive.server";
 
 function requireEnv(name: string) {
   const v = process.env[name];
@@ -118,6 +119,7 @@ export function bucketName() {
  */
 export const ORGCHART_KEYS = {
   main: "main/state.json",
+  roster: "roster/overview.json",
   terminations: "terminations/index.json",
   additions: "additions/index.json",
   logsIndex: "logs/index.json",
@@ -126,6 +128,23 @@ export const ORGCHART_KEYS = {
     return `logs/by-date/${day}/${id}.json`;
   },
 } as const;
+
+export type OrgChartRosterFile = {
+  version: 1;
+  updatedAt: string;
+  source: string;
+  employees: Array<{
+    id: string;
+    full_name: string;
+    email: string;
+    role: string;
+    level: string;
+    department_id: string;
+    department_name: string;
+    manager_id: string | null;
+    manager_name: string | null;
+  }>;
+};
 
 async function getJson<T>(key: string): Promise<T | null> {
   const bucket = bucketName();
@@ -142,8 +161,10 @@ async function getJson<T>(key: string): Promise<T | null> {
 
 async function putJson(key: string, body: unknown, metaKind: string, updatedAt: string) {
   const bucket = bucketName();
+  const client = s3();
   await ensureBucketExists(bucket);
-  await s3().send(
+  await archiveS3JsonBeforeWrite(client, bucket, key);
+  await client.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
@@ -155,6 +176,29 @@ async function putJson(key: string, body: unknown, metaKind: string, updatedAt: 
       },
     }),
   );
+}
+
+/** Full snapshot copy before any destructive org-chart operation (nothing is deleted from S3). */
+async function archiveFullOrgChartSnapshot(reason: string) {
+  const snap = await readOrgChartFromS3();
+  const at = new Date();
+  const key = archiveObjectKey(`orgchart__full__${reason}`, at);
+  const bucket = bucketName();
+  const client = s3();
+  await ensureBucketExists(bucket);
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: JSON.stringify({ ...snap, archiveReason: reason, archivedAt: at.toISOString() }, null, 2),
+      ContentType: "application/json; charset=utf-8",
+      Metadata: {
+        "x-amz-meta-kind": "alyson-orgchart-full-archive",
+        "x-amz-meta-reason": reason,
+      },
+    }),
+  );
+  return key;
 }
 
 type MainFile = {
@@ -350,16 +394,58 @@ export async function writeOrgChartToS3(parts: WriteParts) {
 }
 
 /**
- * Clears the "main", "terminations" and "additions" directories back to empty.
- * Appends a `reset` event to the logging directory; per-event files in logs/by-date/*
- * are intentionally NOT deleted so the historical audit trail is preserved.
+ * Clears only draft layout + manager overrides on the live chart.
+ * Terminations, additions, and all log files are preserved.
+ * A full snapshot is archived under archive/ before any live keys change.
  */
 export async function resetOrgChartOnS3() {
+  const archiveKey = await archiveFullOrgChartSnapshot("reset-draft");
   return writeOrgChartToS3({
     positions: {},
     managerOverrides: {},
-    terminated: [],
-    added: [],
-    event: { type: "reset", payload: { resetAt: new Date().toISOString() } },
+    event: {
+      type: "reset",
+      payload: {
+        resetAt: new Date().toISOString(),
+        scope: "positions_and_overrides_only",
+        archiveKey,
+      },
+    },
   });
+}
+
+/** Canonical HR roster copy stored alongside org-chart state (same bucket). */
+export async function writeOrgChartRosterToS3(
+  employees: Array<{
+    id: string;
+    full_name: string;
+    email: string;
+    role: string;
+    level: string;
+    department_id: string;
+    department_name: string;
+    manager_id?: string | null;
+    manager_name?: string | null;
+  }>,
+  source = "revcloud",
+) {
+  const updatedAt = new Date().toISOString();
+  const file: OrgChartRosterFile = {
+    version: 1,
+    updatedAt,
+    source,
+    employees: employees.map((e) => ({
+      id: e.id,
+      full_name: e.full_name,
+      email: e.email,
+      role: e.role,
+      level: e.level,
+      department_id: e.department_id,
+      department_name: e.department_name,
+      manager_id: e.manager_id ?? null,
+      manager_name: e.manager_name ?? null,
+    })),
+  };
+  await putJson(ORGCHART_KEYS.roster, file, "alyson-orgchart-roster", updatedAt);
+  return { bucket: bucketName(), key: ORGCHART_KEYS.roster, updatedAt };
 }

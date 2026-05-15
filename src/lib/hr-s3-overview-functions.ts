@@ -1,14 +1,19 @@
 import { z } from "zod";
 import { createServerFn } from "@tanstack/react-start";
-import { getHrOverviewSnapshotFromS3, putHrOverviewSnapshotToS3, type HrOverviewSnapshot } from "@/lib/hr-s3-overview.server";
-import { demoOverviewParts, fetchOverviewPartsFromSupabase } from "@/lib/queries-hr-parts";
+import {
+  getOrSeedHrOverviewFromS3,
+  putHrOverviewSnapshotToS3,
+  type HrOverviewSnapshot,
+} from "@/lib/hr-s3-overview.server";
+import { fetchOverviewPartsFromSupabase } from "@/lib/queries-hr-parts";
+import { isGenericPlaceholderRoster, revcloudOverviewParts } from "@/lib/revcloud-overview";
 
 export const getHrOverviewFromS3 = createServerFn({ method: "GET" }).handler(async () => {
-  return await getHrOverviewSnapshotFromS3();
+  return await getOrSeedHrOverviewFromS3();
 });
 
 const SyncInput = z.object({
-  source: z.enum(["supabase", "demo"]).default("demo"),
+  source: z.enum(["supabase", "revcloud"]).default("revcloud"),
 });
 
 export const syncHrOverviewToS3 = createServerFn({ method: "POST" })
@@ -18,12 +23,16 @@ export const syncHrOverviewToS3 = createServerFn({ method: "POST" })
     const parts =
       data.source === "supabase"
         ? await fetchOverviewPartsFromSupabase()
-        : demoOverviewParts();
+        : revcloudOverviewParts();
+
+    if (data.source === "revcloud" && isGenericPlaceholderRoster(parts.employees)) {
+      throw new Error("RevCloud roster failed validation — refusing to write to S3.");
+    }
 
     const snapshot: HrOverviewSnapshot = {
       version: 1,
       generatedAt,
-      source: data.source,
+      source: data.source === "supabase" ? "supabase" : "revcloud",
       departments: parts.departments,
       employees: parts.employees,
       compensation: parts.compensation,
