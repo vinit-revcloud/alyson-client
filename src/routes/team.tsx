@@ -4,9 +4,24 @@ import { fetchOverview, type EmployeeFull } from "@/lib/queries";
 import { PageHeader, EmptyState } from "@/components/AppShell";
 import { PageSkeleton } from "@/components/Skeleton";
 import { fmtCurrency } from "@/lib/format";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Search, Users, LayoutGrid, Network, Plus } from "lucide-react";
-import { OrgChart } from "@/components/OrgChart";
+const OrgChart = lazy(() => import("@/components/OrgChart").then((m) => ({ default: m.OrgChart })));
+
+function employeeInitials(name: string | undefined | null) {
+  const parts = String(name ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0] + parts[parts.length - 1]![0]).toUpperCase();
+}
+
+function formatPerformanceScore(score: unknown) {
+  const n = Number(score);
+  return Number.isFinite(n) ? n.toFixed(1) : "—";
+}
 import { EmployeeDrawer } from "@/components/drawers/EmployeeDrawer";
 import { CreateUserDrawer } from "@/components/drawers/CreateUserDrawer";
 import { useAuth } from "@/lib/auth";
@@ -192,7 +207,7 @@ function TeamPage() {
                     >
                       <div className="flex items-start gap-3">
                         <div className="h-10 w-10 rounded-full bg-accent text-accent-foreground grid place-items-center font-medium text-sm shrink-0">
-                          {e.full_name.split(" ").map((s) => s[0]).slice(0, 2).join("")}
+                          {employeeInitials(e.full_name)}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="font-medium text-[14px] truncate">{e.full_name}</div>
@@ -206,7 +221,7 @@ function TeamPage() {
                         <span
                           className={`pill ${e.performance_score >= 4 ? "pill-success" : e.performance_score >= 3 ? "pill-info" : "pill-warning"}`}
                         >
-                          {e.performance_score.toFixed(1)}★
+                          {formatPerformanceScore(e.performance_score)}★
                         </span>
                       </div>
                       <div className="mt-3 pt-3 border-t border-border text-[11px] text-muted-foreground flex justify-between">
@@ -218,7 +233,7 @@ function TeamPage() {
                     <div key={e.id} className="surface-card p-4 text-left">
                       <div className="flex items-start gap-3">
                         <div className="h-10 w-10 rounded-full bg-accent text-accent-foreground grid place-items-center font-medium text-sm shrink-0">
-                          {e.full_name.split(" ").map((s) => s[0]).slice(0, 2).join("")}
+                          {employeeInitials(e.full_name)}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="font-medium text-[14px] truncate">{e.full_name}</div>
@@ -232,7 +247,7 @@ function TeamPage() {
                         <span
                           className={`pill ${e.performance_score >= 4 ? "pill-success" : e.performance_score >= 3 ? "pill-info" : "pill-warning"}`}
                         >
-                          {e.performance_score.toFixed(1)}★
+                          {formatPerformanceScore(e.performance_score)}★
                         </span>
                       </div>
                       <div className="mt-3 pt-3 border-t border-border text-[11px] text-muted-foreground flex justify-between">
@@ -247,7 +262,15 @@ function TeamPage() {
           </>
         )}
 
-        {view === "chart" && <OrgChart employees={data.employees} canEdit={auth.hasRole("super_admin")} />}
+        {view === "chart" && (
+          <Suspense
+            fallback={
+              <div className="surface-card p-10 text-center text-[13px] text-muted-foreground">Loading org chart…</div>
+            }
+          >
+            <OrgChart employees={data.employees} canEdit={auth.hasRole("super_admin")} />
+          </Suspense>
+        )}
       </div>
 
       {isSuperAdmin && <EmployeeDrawer employee={picked} onClose={() => setPicked(null)} />}

@@ -1,0 +1,169 @@
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+import type { NotetakerSession, NotetakerTranscriptLine } from "@/lib/alyson-notetaker-functions";
+import { getPersistedSession, persistSession } from "@/lib/notetaker-datastore.server";
+import { getNotetakerSessionsIndexFromS3 } from "@/lib/notetaker-sessions-s3.server";
+
+const BotIdInput = z.object({ botId: z.string().min(1) });
+
+export type NotetakerSessionPayload = {
+  session: NotetakerSession;
+  lines: NotetakerTranscriptLine[];
+  participantCount: number;
+  startedLabel: string;
+  hasRecallConfig: boolean;
+  hasGroqConfig: boolean;
+};
+
+function baseUrl() {
+  const raw =
+    process.env.ALYSON_NOTETAKER_BASE_URL ||
+    process.env.VITE_ALYSON_NOTETAKER_BASE_URL ||
+    process.env.TEST_BOTV2_BASE_URL ||
+    process.env.VITE_TEST_BOTV2_BASE_URL ||
+    "http://localhost:3003";
+  return String(raw).replace(/\/$/, "");
+}
+
+async function upstream(path: string, init?: RequestInit) {
+  const url = `${baseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
+  const r = await fetch(url, init);
+  const contentType = r.headers.get("content-type") || "";
+  const text = await r.text();
+  let json: unknown = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // ignore
+  }
+  if (contentType.includes("text/html") || (text && text.trim().startsWith("<!DOCTYPE html"))) {
+    throw new Error(
+      `Notetaker API returned HTML (wrong base URL or server not running). ` +
+        `Check ALYSON_NOTETAKER_BASE_URL (currently: ${baseUrl()}).`,
+    );
+  }
+  if (!r.ok) {
+    const msg =
+      json && typeof json === "object" && "error" in json
+        ? String((json as { error: unknown }).error)
+        : text || `Request failed (${r.status})`;
+    throw new Error(msg);
+  }
+  return json;
+}
+
+function linesFromPlainTranscript(transcriptText: string): NotetakerTranscriptLine[] {
+  const baseTime = Date.now();
+  return transcriptText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, i) => {
+      const m = line.match(/^([^:]+):\s*(.+)$/);
+      return {
+        received_at: new Date(baseTime + i).toISOString(),
+        event: "transcript",
+        participant: { name: (m?.[1] || "Speaker").trim() },
+        text: (m?.[2] || line).trim(),
+      };
+    });
+}
+
+async function loadSessionFallback(botId: string): Promise<NotetakerSessionPayload | null> {
+  const persisted = await getPersistedSession(botId);
+  if (persisted?.transcript?.transcriptText) {
+    const lines = linesFromPlainTranscript(persisted.transcript.transcriptText);
+    return {
+      session: {
+        botId: persisted.botId,
+        title: persisted.title,
+        meetingUrl: persisted.meetingUrl,
+        botName: persisted.botName,
+        createdAt: persisted.createdAt,
+        status: persisted.status,
+      },
+      lines,
+      participantCount: 0,
+      startedLabel: persisted.createdAt,
+      hasRecallConfig: true,
+      hasGroqConfig: true,
+    };
+  }
+
+  try {
+    const idx = await getNotetakerSessionsIndexFromS3();
+    const meta = (idx.sessions ?? []).find((s) => String(s.botId) === botId);
+    if (meta) {
+      return {
+        session: meta,
+        lines: [],
+        participantCount: 0,
+        startedLabel: meta.createdAt,
+        hasRecallConfig: true,
+        hasGroqConfig: true,
+      };
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+function normalizeSessionPayload(res: unknown, botId: string): NotetakerSessionPayload {
+  if (!res || typeof res !== "object") {
+    throw new Error(`Notetaker API returned an empty response for bot ${botId}.`);
+  }
+  const o = res as Partial<NotetakerSessionPayload>;
+  if (!o.session?.botId) {
+    throw new Error(`Notetaker API response missing session for bot ${botId}.`);
+  }
+  return {
+    session: o.session,
+    lines: Array.isArray(o.lines) ? o.lines : [],
+    participantCount: Number(o.participantCount ?? 0),
+    startedLabel: String(o.startedLabel ?? o.session.createdAt ?? ""),
+    hasRecallConfig: Boolean(o.hasRecallConfig ?? true),
+    hasGroqConfig: Boolean(o.hasGroqConfig ?? true),
+  };
+}
+
+/** POST avoids flaky GET input handling in TanStack Start dev. */
+export const getNotetakerSession = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => BotIdInput.parse(data))
+  .handler(async ({ data }): Promise<NotetakerSessionPayload> => {
+    try {
+      const res = await upstream(`/api/session/${encodeURIComponent(data.botId)}`);
+      const typed = normalizeSessionPayload(res, data.botId);
+
+      const st = String(typed.session?.status || "").toLowerCase();
+      const ended = ["ended", "completed", "disconnected", "left", "finished"].includes(st);
+      if (ended && typed.session?.botId) {
+        const existing = await getPersistedSession(typed.session.botId);
+        if (!existing?.finalizedAt) {
+          let notes: { notes: string; model?: string } | null = null;
+          try {
+            notes = (await upstream(`/api/session/${encodeURIComponent(data.botId)}/notes`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ prompt: "" }),
+            })) as { notes: string; model?: string };
+          } catch {
+            // Notes generation can fail; transcript persistence should still work.
+          }
+          await persistSession({ session: typed.session, lines: typed.lines ?? [], notes });
+        }
+      }
+
+      return typed;
+    } catch (upstreamErr) {
+      const fallback = await loadSessionFallback(data.botId);
+      if (fallback) return fallback;
+
+      const hint =
+        upstreamErr instanceof Error ? upstreamErr.message : "Notetaker API unavailable.";
+      throw new Error(
+        `${hint} Start the notetaker service (default port 3003) or run npm run dev:ops.`,
+      );
+    }
+  });

@@ -5,11 +5,11 @@ import { PageHeader, EmptyState } from "@/components/AppShell";
 import { PageSkeleton } from "@/components/Skeleton";
 import {
   listNotetakerSessions,
-  getNotetakerSession,
   createNotetakerRecallBot,
   generateNotetakerNotes,
   type NotetakerTranscriptLine,
 } from "@/lib/alyson-notetaker-functions";
+import { getNotetakerSession } from "@/lib/notetaker-get-session-functions";
 import { Captions, Plus, RefreshCw, Sparkles, Copy, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
@@ -424,7 +424,15 @@ function SessionPanel({ botId }: { botId: string | null }) {
 
   const q = useQuery({
     queryKey: ["alyson-notetaker", "session", botId],
-    queryFn: () => getNotetakerSession({ data: { botId: botId! } }),
+    queryFn: async () => {
+      const res = await getNotetakerSession({ data: { botId: botId! } });
+      if (!res?.session) {
+        throw new Error(
+          "Session data was empty. Stop the dev server, run npm run dev again, then hard-refresh the page (Ctrl+Shift+R).",
+        );
+      }
+      return res;
+    },
     enabled: Boolean(botId),
     refetchInterval: 10_000,
   });

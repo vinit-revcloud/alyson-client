@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { persistMeetingToS3 } from "@/lib/notetaker-persistence.server";
-import { getNotetakerSession } from "@/lib/alyson-notetaker-functions";
+import { getNotetakerSession } from "@/lib/notetaker-get-session-functions";
 import { generateNotetakerNotes } from "@/lib/alyson-notetaker-functions";
 
 const BotIdInput = z.object({ botId: z.string().min(1) });

@@ -253,6 +253,42 @@ function sanitizeManagerOverrides(
   return out;
 }
 
+function managerOverridesEqual(a: Record<string, string | null>, b: Record<string, string | null>) {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
+function addedEmployeesEqual(a: EmployeeFull[], b: EmployeeFull[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.id !== b[i]!.id || a[i]!.manager_id !== b[i]!.manager_id) return false;
+  }
+  return true;
+}
+
+function nodesLayoutEqual(a: EmpNode[], b: EmpNode[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (x.id !== y.id || x.position.x !== y.position.x || x.position.y !== y.position.y) return false;
+  }
+  return true;
+}
+
+function edgesLayoutEqual(a: Edge[], b: Edge[]) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]!.id !== b[i]!.id || a[i]!.source !== b[i]!.source || a[i]!.target !== b[i]!.target) return false;
+  }
+  return true;
+}
+
 /** Keep dummy/add-on people reporting to the right manager after roster ID changes. */
 function reconcileAddedPeopleManagers(added: EmployeeFull[], roster: EmployeeFull[]): EmployeeFull[] {
   const byId = new Map(roster.map((e) => [e.id, e]));
@@ -310,6 +346,7 @@ function layout(
   if (highlightId) {
     let cur: string | null = highlightId;
     while (cur) {
+      if (reportingChain.has(cur)) break;
       reportingChain.add(cur);
       const emp = byId.get(cur);
       const next = emp ? getManagerId(emp, managerOverrides) : null;
@@ -322,23 +359,39 @@ function layout(
   const VY = 140; // vertical unit
 
   const sorted = (list: EmployeeFull[]) =>
-    list.slice().sort((a, b) => a.department_name.localeCompare(b.department_name) || a.full_name.localeCompare(b.full_name));
+    list
+      .slice()
+      .sort(
+        (a, b) =>
+          (a.department_name ?? "").localeCompare(b.department_name ?? "") ||
+          (a.full_name ?? "").localeCompare(b.full_name ?? ""),
+      );
 
   const widthUnits = new Map<string, number>();
   const roots = sorted(children.get(null) ?? []);
+  const widthVisiting = new Set<string>();
+  const placeVisiting = new Set<string>();
 
   const computeWidth = (id: string): number => {
     if (widthUnits.has(id)) return widthUnits.get(id)!;
+    if (widthVisiting.has(id)) return 1;
+    widthVisiting.add(id);
     const kids = sorted(children.get(id) ?? []);
     const w = kids.length ? kids.reduce((s, k) => s + computeWidth(k.id), 0) : 1;
+    widthVisiting.delete(id);
     widthUnits.set(id, w);
     return w;
   };
   roots.forEach((r) => computeWidth(r.id));
 
   const placeNode = (id: string, depth: number, xUnitStart: number): { width: number; center: number } => {
+    if (placeVisiting.has(id)) return { width: 1, center: xUnitStart + 0.5 };
+    placeVisiting.add(id);
     const emp = byId.get(id);
-    if (!emp) return { width: 1, center: xUnitStart + 0.5 };
+    if (!emp) {
+      placeVisiting.delete(id);
+      return { width: 1, center: xUnitStart + 0.5 };
+    }
     const kids = sorted(children.get(id) ?? []);
     const w = widthUnits.get(id) ?? 1;
 
@@ -382,6 +435,7 @@ function layout(
         onTerminate: () => editCtx.onTerminate(emp.id),
       },
     });
+    placeVisiting.delete(id);
     return { width: w, center };
   };
 
@@ -752,6 +806,7 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
   const [edges, setEdges] = useState<Edge[]>([]);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [rf, setRf] = useState<ReactFlowInstance | null>(null);
+  const fitViewDoneRef = useRef(false);
 
   const [terminateTargetId, setTerminateTargetId] = useState<string | null>(null);
   const [addPersonOpen, setAddPersonOpen] = useState(false);
@@ -851,8 +906,14 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
   }, [employees]);
 
   useEffect(() => {
-    setManagerOverrides((prev) => sanitizeManagerOverrides(prev, effectiveEmployees));
-    setAddedEmployees((prev) => reconcileAddedPeopleManagers(prev, employees));
+    setManagerOverrides((prev) => {
+      const next = sanitizeManagerOverrides(prev, effectiveEmployees);
+      return managerOverridesEqual(prev, next) ? prev : next;
+    });
+    setAddedEmployees((prev) => {
+      const next = reconcileAddedPeopleManagers(prev, employees);
+      return addedEmployeesEqual(prev, next) ? prev : next;
+    });
   }, [effectiveEmployees, employees]);
 
   const persistRef = useRef({
@@ -1017,8 +1078,8 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
       const p = layoutStore?.[node.id];
       return p ? { ...node, position: { x: p.x, y: p.y } } : node;
     });
-    setNodes(n);
-    setEdges(base.edges);
+    setNodes((prev) => (nodesLayoutEqual(prev, n) ? prev : n));
+    setEdges((prev) => (edgesLayoutEqual(prev, base.edges) ? prev : base.edges));
   }, [
     effectiveEmployees,
     highlightId,
@@ -1076,8 +1137,8 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
   );
 
   // search highlight
-  useMemo(() => {
-    if (!search) return;
+  useEffect(() => {
+    if (!search.trim()) return;
     const match = effectiveEmployees.find((e) => e.full_name.toLowerCase().includes(search.toLowerCase()));
     if (match) setHighlightId(match.id);
   }, [search, effectiveEmployees]);
@@ -1089,6 +1150,18 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
       .filter((e) => e.full_name.toLowerCase().includes(q) || e.role.toLowerCase().includes(q))
       .slice(0, 8);
   }, [effectiveEmployees, search]);
+
+  useEffect(() => {
+    fitViewDoneRef.current = false;
+  }, [effectiveEmployees.length]);
+
+  useEffect(() => {
+    if (!rf || nodes.length === 0 || fitViewDoneRef.current) return;
+    fitViewDoneRef.current = true;
+    requestAnimationFrame(() => {
+      rf.fitView({ padding: 0.15 });
+    });
+  }, [rf, nodes.length]);
 
   useEffect(() => {
     if (!rf || !highlightId) return;
@@ -1420,8 +1493,6 @@ export function OrgChart({ employees, canEdit = false }: { employees: EmployeeFu
           onConnect={onConnect}
           nodeTypes={nodeTypes}
           onInit={setRf}
-          fitView
-          fitViewOptions={{ padding: 0.15 }}
           nodesDraggable={canEditNow}
           nodesConnectable={canEditNow}
           edgesUpdatable={canEditNow}

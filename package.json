@@ -4,9 +4,9 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "dev": "dotenv -e .env -- vite dev --port 3000 --strictPort",
-    "dev:web": "dotenv -e .env -- vite dev --port 3000 --strictPort",
-    "dev:ops": "dotenv -e .env -- cross-env ALYSON_NOTETAKER_BASE_URL=http://localhost:3003 VITE_ALYSON_NOTETAKER_BASE_URL=http://localhost:3003 vite dev --port 3000 --strictPort",
+    "dev": "dotenv -e .env -- vite dev --port 3001 --strictPort",
+    "dev:web": "dotenv -e .env -- vite dev --port 3001 --strictPort",
+    "dev:ops": "dotenv -e .env -- cross-env ALYSON_NOTETAKER_BASE_URL=http://localhost:3003 VITE_ALYSON_NOTETAKER_BASE_URL=http://localhost:3003 vite dev --port 3001 --strictPort",
     "build": "dotenv -e .env -- vite build",
     "build:dev": "dotenv -e .env -- vite build --mode development",
     "preview": "dotenv -e .env -- vite preview --port 3000 --strictPort",
