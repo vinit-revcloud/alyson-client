@@ -162,6 +162,11 @@ export async function listPersistedSessionsFromS3(): Promise<NotetakerSession[]>
   return mergeNotetakerSessions(fromIndex, fromBotIndex);
 }
 
+export async function isMeetingPersistedInS3(botId: string): Promise<boolean> {
+  const doc = await loadBotIndexDoc(botId);
+  return Boolean(doc?.botId && doc.transcriptKey);
+}
+
 async function loadBotIndexDoc(botId: string): Promise<BotIndexDoc | null> {
   const client = s3();
   const bucket = bucketName();

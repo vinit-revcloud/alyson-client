@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useEffect, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMemo, useEffect, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader, EmptyState } from "@/components/AppShell";
 import { PageSkeleton } from "@/components/Skeleton";
 import {
@@ -308,7 +308,7 @@ function AlysonNotetakerPage() {
             </div>
           </div>
 
-          <SessionPanel botId={picked} />
+          <SessionPanel botId={picked} onSessionsChange={() => sessionsQ.refetch()} />
         </div>
       </div>
     </div>
@@ -429,7 +429,15 @@ function CreateBotForm({ onCreated }: { onCreated: (botId: string | null) => voi
   );
 }
 
-function SessionPanel({ botId }: { botId: string | null }) {
+function SessionPanel({
+  botId,
+  onSessionsChange,
+}: {
+  botId: string | null;
+  onSessionsChange?: () => void;
+}) {
+  const qc = useQueryClient();
+  const autoPersistToastRef = useRef<string | null>(null);
   const base =
     (import.meta as any).env?.VITE_ALYSON_NOTETAKER_BASE_URL || (import.meta as any).env?.VITE_TEST_BOTV2_BASE_URL || "http://localhost:3002";
 
@@ -542,6 +550,15 @@ function SessionPanel({ botId }: { botId: string | null }) {
     setNotesModel(q.data.notesModel || "s3");
   }, [botId, q.data?.notesMd, q.data?.notesModel]);
 
+  useEffect(() => {
+    if (!q.data?.autoPersistedToS3 || !botId) return;
+    if (autoPersistToastRef.current === botId) return;
+    autoPersistToastRef.current = botId;
+    toast.success("Meeting auto-saved to S3");
+    void qc.invalidateQueries({ queryKey: ["alyson-notetaker", "sessions"] });
+    onSessionsChange?.();
+  }, [q.data?.autoPersistedToS3, botId, qc, onSessionsChange]);
+
   const notesM = useMutation({
     mutationFn: async (prompt?: string) => {
       // For very large transcripts, avoid upstream token exhaustion by chunking locally.
@@ -567,7 +584,12 @@ function SessionPanel({ botId }: { botId: string | null }) {
 
   const persistM = useMutation({
     mutationFn: async () => finalizeAndPersistNotetakerSession({ data: { botId: botId! } }),
-    onSuccess: () => toast.success("Meeting persisted to S3"),
+    onSuccess: () => {
+      toast.success("Meeting persisted to S3");
+      void q.refetch();
+      void qc.invalidateQueries({ queryKey: ["alyson-notetaker", "sessions"] });
+      onSessionsChange?.();
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to persist meeting"),
   });
 
@@ -630,7 +652,12 @@ function SessionPanel({ botId }: { botId: string | null }) {
     <div className="surface-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="font-medium text-[14px] truncate">{session?.title || "Meeting"}</div>
+          <div className="font-medium text-[14px] truncate flex items-center gap-2">
+            <span className="truncate">{session?.title || "Meeting"}</span>
+            {q.data?.persistedInS3 && (
+              <span className="shrink-0 text-[10px] rounded px-1.5 py-0.5 bg-muted text-muted-foreground">S3</span>
+            )}
+          </div>
           <div className="text-[12px] text-muted-foreground truncate">{botId}</div>
         </div>
         <div className="flex items-center gap-2">
@@ -645,7 +672,7 @@ function SessionPanel({ botId }: { botId: string | null }) {
             onClick={() => persistM.mutate()}
             disabled={persistM.isPending}
             className="h-8 px-3 rounded-md bg-foreground text-background text-xs flex items-center gap-1.5 disabled:opacity-50"
-            title="Persist transcript + notes"
+            title="Persist transcript + notes to S3"
           >
             Persist
           </button>

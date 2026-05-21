@@ -80,6 +80,8 @@ export type NotetakerSessionPayload = {
   notesMd?: string | null;
   notesModel?: string;
   persistedInS3?: boolean;
+  /** Set when this request auto-wrote the meeting to S3 */
+  autoPersistedToS3?: boolean;
 };
 
 export const listNotetakerSessions = createServerFn({ method: "GET" }).handler(async () => {

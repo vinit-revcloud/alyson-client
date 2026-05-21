@@ -6,6 +6,7 @@ import type {
   NotetakerTranscriptLine,
 } from "@/lib/alyson-notetaker-functions";
 import { getPersistedSession, persistSession } from "@/lib/notetaker-datastore.server";
+import { autoPersistEndedMeetingToS3 } from "@/lib/notetaker-auto-persist.server";
 import { loadPersistedSessionPayloadFromS3 } from "@/lib/notetaker-sessions-history.server";
 
 const BotIdInput = z.object({ botId: z.string().min(1) });
@@ -141,7 +142,7 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
 
       const st = String(typed.session?.status || "").toLowerCase();
       const ended = ["ended", "completed", "disconnected", "left", "finished"].includes(st);
-      if (ended && typed.session?.botId) {
+      if (ended && typed.session?.botId && typed.lines.length > 0) {
         const existing = await getPersistedSession(typed.session.botId);
         if (!existing?.finalizedAt) {
           let notes: { notes: string; model?: string } | null = null;
@@ -152,9 +153,35 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
               body: JSON.stringify({ prompt: "" }),
             })) as { notes: string; model?: string };
           } catch {
-            // Notes generation can fail; transcript persistence should still work.
+            // Notes generation can fail; local persistence should still work.
           }
           await persistSession({ session: typed.session, lines: typed.lines ?? [], notes });
+          if (notes?.notes) {
+            typed.notesMd = notes.notes;
+            typed.notesModel = notes.model;
+          }
+        }
+
+        try {
+          const auto = await autoPersistEndedMeetingToS3({
+            session: typed.session,
+            lines: typed.lines,
+            existingNotesMd: typed.notesMd,
+            existingNotesModel: typed.notesModel,
+          });
+          if (auto.persisted) {
+            typed.autoPersistedToS3 = true;
+            typed.persistedInS3 = true;
+            typed.session = { ...typed.session, status: "persisted" };
+            if (auto.notesMd) {
+              typed.notesMd = auto.notesMd;
+              typed.notesModel = auto.notesModel;
+            }
+          } else if (auto.skipped === "already_in_s3") {
+            typed.persistedInS3 = true;
+          }
+        } catch {
+          // Session view must still load if S3 auto-persist fails
         }
       }
 
