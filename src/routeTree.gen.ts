@@ -35,6 +35,7 @@ import { Route as BonusPlansRouteImport } from './routes/bonus/plans'
 import { Route as BonusAuditRouteImport } from './routes/bonus/audit'
 import { Route as BonusApprovalsRouteImport } from './routes/bonus/approvals'
 import { Route as AlysonNotetakerCalendarRouteImport } from './routes/alyson-notetaker/calendar'
+import { Route as AlysonNotetakerAnalyticsRouteImport } from './routes/alyson-notetaker/analytics'
 
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
@@ -166,6 +167,12 @@ const AlysonNotetakerCalendarRoute = AlysonNotetakerCalendarRouteImport.update({
   path: '/calendar',
   getParentRoute: () => AlysonNotetakerRouteRoute,
 } as any)
+const AlysonNotetakerAnalyticsRoute =
+  AlysonNotetakerAnalyticsRouteImport.update({
+    id: '/analytics',
+    path: '/analytics',
+    getParentRoute: () => AlysonNotetakerRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -186,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/team': typeof TeamRoute
   '/time-dashboard': typeof TimeDashboardRouteWithChildren
   '/workflows': typeof WorkflowsRoute
+  '/alyson-notetaker/analytics': typeof AlysonNotetakerAnalyticsRoute
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/bonus/approvals': typeof BonusApprovalsRoute
   '/bonus/audit': typeof BonusAuditRoute
@@ -212,6 +220,7 @@ export interface FileRoutesByTo {
   '/team': typeof TeamRoute
   '/time-dashboard': typeof TimeDashboardRouteWithChildren
   '/workflows': typeof WorkflowsRoute
+  '/alyson-notetaker/analytics': typeof AlysonNotetakerAnalyticsRoute
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/bonus/approvals': typeof BonusApprovalsRoute
   '/bonus/audit': typeof BonusAuditRoute
@@ -241,6 +250,7 @@ export interface FileRoutesById {
   '/team': typeof TeamRoute
   '/time-dashboard': typeof TimeDashboardRouteWithChildren
   '/workflows': typeof WorkflowsRoute
+  '/alyson-notetaker/analytics': typeof AlysonNotetakerAnalyticsRoute
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/bonus/approvals': typeof BonusApprovalsRoute
   '/bonus/audit': typeof BonusAuditRoute
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/time-dashboard'
     | '/workflows'
+    | '/alyson-notetaker/analytics'
     | '/alyson-notetaker/calendar'
     | '/bonus/approvals'
     | '/bonus/audit'
@@ -297,6 +308,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/time-dashboard'
     | '/workflows'
+    | '/alyson-notetaker/analytics'
     | '/alyson-notetaker/calendar'
     | '/bonus/approvals'
     | '/bonus/audit'
@@ -325,6 +337,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/time-dashboard'
     | '/workflows'
+    | '/alyson-notetaker/analytics'
     | '/alyson-notetaker/calendar'
     | '/bonus/approvals'
     | '/bonus/audit'
@@ -540,15 +553,24 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AlysonNotetakerCalendarRouteImport
       parentRoute: typeof AlysonNotetakerRouteRoute
     }
+    '/alyson-notetaker/analytics': {
+      id: '/alyson-notetaker/analytics'
+      path: '/analytics'
+      fullPath: '/alyson-notetaker/analytics'
+      preLoaderRoute: typeof AlysonNotetakerAnalyticsRouteImport
+      parentRoute: typeof AlysonNotetakerRouteRoute
+    }
   }
 }
 
 interface AlysonNotetakerRouteRouteChildren {
+  AlysonNotetakerAnalyticsRoute: typeof AlysonNotetakerAnalyticsRoute
   AlysonNotetakerCalendarRoute: typeof AlysonNotetakerCalendarRoute
   AlysonNotetakerIndexRoute: typeof AlysonNotetakerIndexRoute
 }
 
 const AlysonNotetakerRouteRouteChildren: AlysonNotetakerRouteRouteChildren = {
+  AlysonNotetakerAnalyticsRoute: AlysonNotetakerAnalyticsRoute,
   AlysonNotetakerCalendarRoute: AlysonNotetakerCalendarRoute,
   AlysonNotetakerIndexRoute: AlysonNotetakerIndexRoute,
 }

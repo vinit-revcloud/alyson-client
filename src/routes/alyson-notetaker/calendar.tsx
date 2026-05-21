@@ -1,10 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppShell";
 import { CalendarDays, Captions, Copy } from "lucide-react";
 import { listMeetingsFromS3Range, getMeetingNotesMdFromS3, getMeetingTranscriptTextFromS3 } from "@/lib/notetaker-s3-calendar-functions";
 import { toast } from "sonner";
+import { z } from "zod";
 
 type MeetingRow = {
   prefix: string;
@@ -15,8 +16,15 @@ type MeetingRow = {
   transcriptKey: string | null;
 };
 
+const calendarSearchSchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  transcriptKey: z.string().min(1).optional(),
+  open: z.enum(["transcript", "notes"]).optional(),
+});
+
 export const Route = createFileRoute("/alyson-notetaker/calendar")({
   head: () => ({ meta: [{ title: "Meeting Calendar — Alyson Notetaker" }] }),
+  validateSearch: (search) => calendarSearchSchema.parse(search),
   component: CalendarPage,
 });
 
@@ -41,10 +49,44 @@ function monthLabel(d: Date) {
 }
 
 function CalendarPage() {
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const deepLinkHandled = useRef(false);
+
   const [month, setMonth] = useState(() => startOfMonth(new Date()));
   const [picked, setPicked] = useState<string | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [openKind, setOpenKind] = useState<"notes" | "transcript">("notes");
+
+  useEffect(() => {
+    const { day, transcriptKey, open } = search;
+    if (!day && !transcriptKey) {
+      deepLinkHandled.current = false;
+      return;
+    }
+    if (deepLinkHandled.current) return;
+    deepLinkHandled.current = true;
+
+    if (day) {
+      const d = new Date(`${day}T12:00:00Z`);
+      if (!Number.isNaN(d.getTime())) {
+        setMonth(startOfMonth(d));
+        setPicked(day);
+      }
+    }
+
+    if (transcriptKey && (open === "transcript" || open === undefined)) {
+      setOpenKind("transcript");
+      setOpenKey(transcriptKey);
+      toast.message("Opening transcript…");
+    } else if (transcriptKey && open === "notes") {
+      setOpenKind("notes");
+      setOpenKey(transcriptKey);
+      toast.message("Opening notes…");
+    }
+
+    navigate({ search: {}, replace: true });
+  }, [search, navigate]);
 
   const range = useMemo(() => {
     const s = startOfMonth(month);
