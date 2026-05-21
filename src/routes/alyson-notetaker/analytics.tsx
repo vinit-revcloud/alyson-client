@@ -516,62 +516,72 @@ function AnalyticsPage() {
               {report.meetings.length === 0 ? (
                 <div className="text-sm text-muted-foreground">No meetings match filters in this range.</div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="ops-table w-full min-w-[640px]">
-                    <thead>
-                      <tr>
-                        <th align="left">Day</th>
-                        <th align="left">Meeting</th>
-                        <th align="right">Speakers</th>
-                        <th align="right">Utterances</th>
-                        <th align="left">Who spoke</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {report.meetings.map((m) => (
-                        <tr key={m.prefix} className="hover:bg-muted/40">
-                          <td className="text-muted-foreground whitespace-nowrap">{m.day}</td>
-                          <td className="max-w-[200px]">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setGoToMeeting({
-                                  title: m.title,
-                                  day: m.day,
-                                  prefix: m.prefix,
-                                  transcriptKey: m.transcriptKey,
-                                })
-                              }
-                              className="font-medium truncate text-left w-full hover:underline underline-offset-2 text-foreground"
-                              title={`Open ${m.title} in calendar`}
-                            >
-                              {m.title}
-                            </button>
-                          </td>
-                          <td align="right" className="font-mono text-xs">
-                            {m.uniqueSpeakers}
-                          </td>
-                          <td align="right" className="font-mono text-xs">
-                            {m.totalUtterances}
-                          </td>
-                          <td className="text-[12px] text-muted-foreground">
-                            {m.speakers
-                              .slice(0, 5)
-                              .map((s) => `${s.speaker} (${s.utterances})`)
-                              .join(" · ")}
-                            {m.speakers.length > 5 ? " …" : ""}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                    <span>
+                      {report.meetings.length} meeting{report.meetings.length === 1 ? "" : "s"}
+                    </span>
+                    {report.meetings.length > 6 && <span>Scroll the table for more</span>}
+                  </div>
+                  <div className="rounded-md border border-border overflow-hidden">
+                    <div className="max-h-[min(420px,55vh)] overflow-y-auto overflow-x-auto overscroll-contain">
+                      <table className="ops-table w-full min-w-[640px]">
+                        <thead className="sticky top-0 z-[1] bg-background">
+                          <tr className="shadow-[inset_0_-1px_0_var(--border)]">
+                            <th align="left">Day</th>
+                            <th align="left">Meeting</th>
+                            <th align="right">Speakers</th>
+                            <th align="right">Utterances</th>
+                            <th align="left">Who spoke</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {report.meetings.map((m) => (
+                            <tr key={m.prefix} className="hover:bg-muted/40">
+                              <td className="text-muted-foreground whitespace-nowrap">{m.day}</td>
+                              <td className="max-w-[200px]">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setGoToMeeting({
+                                      title: m.title,
+                                      day: m.day,
+                                      prefix: m.prefix,
+                                      transcriptKey: m.transcriptKey,
+                                    })
+                                  }
+                                  className="font-medium truncate text-left w-full hover:underline underline-offset-2 text-foreground"
+                                  title={`Open ${m.title} in calendar`}
+                                >
+                                  {m.title}
+                                </button>
+                              </td>
+                              <td align="right" className="font-mono text-xs">
+                                {m.uniqueSpeakers}
+                              </td>
+                              <td align="right" className="font-mono text-xs">
+                                {m.totalUtterances}
+                              </td>
+                              <td className="text-[12px] text-muted-foreground">
+                                {m.speakers
+                                  .slice(0, 5)
+                                  .map((s) => `${s.speaker} (${s.utterances})`)
+                                  .join(" · ")}
+                                {m.speakers.length > 5 ? " …" : ""}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
 
             <p className="text-[11px] text-muted-foreground">
               Crawler reads <code className="text-[10px]">alyson-notetaker/transcripts/…/transcript.txt</code> lines as{" "}
-              <code className="text-[10px]">Name: utterance</code>. Speaker names with colons may parse incorrectly. Max 50 meetings per
+              <code className="text-[10px]">Name: utterance</code>. Speaker names with colons may parse incorrectly. Max 100 meetings per
               request.
             </p>
           </>
