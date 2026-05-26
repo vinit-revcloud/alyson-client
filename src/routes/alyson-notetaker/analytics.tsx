@@ -503,7 +503,7 @@ function AnalyticsPage() {
                   className="ml-auto h-8 px-3 rounded-md border border-border text-xs font-medium inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
-                  {insightsMut.isPending ? "Generating…" : "AI insights (Groq)"}
+                  {insightsMut.isPending ? "Generating…" : "AI insights"}
                 </button>
               </div>
 
