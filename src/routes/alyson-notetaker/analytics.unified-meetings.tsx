@@ -87,12 +87,25 @@ export function UnifiedMeetingsPage() {
       return json as { checked: number; scheduled: number; skipped: number; errors: string[] };
     },
     onSuccess: (r) => {
-      toast.success(`Scheduled ${r.scheduled}, skipped ${r.skipped}`);
-      if (r.errors.length) toast.error(`${r.errors.length} scheduling errors`);
       void q.refetch();
+      if ((r.errors?.length ?? 0) > 0) {
+        toast.warning(`${r.errors!.length} meeting(s) failed to schedule`, {
+          description: `${r.scheduled} scheduled · ${r.skipped} skipped`,
+        });
+      }
     },
-    onError: (e: Error) => toast.error(e.message),
   });
+
+  function scheduleEligibleBots() {
+    toast.promise(scheduleAllM.mutateAsync(), {
+      loading: "Scheduling eligible bots…",
+      success: (r) => ({
+        message: "Eligible bots scheduled",
+        description: `${r.scheduled} scheduled · ${r.skipped} skipped · ${r.checked} checked`,
+      }),
+      error: (e) => (e instanceof Error ? e.message : "Failed to schedule bots"),
+    });
+  }
 
   const scheduleOneM = useMutation({
     mutationFn: async (meetingId: string) => {
@@ -143,11 +156,16 @@ export function UnifiedMeetingsPage() {
             </button>
             <button
               type="button"
-              onClick={() => scheduleAllM.mutate()}
-              className="h-7 px-2.5 rounded-md bg-foreground text-background text-[11.5px] font-medium inline-flex items-center gap-1.5"
+              disabled={scheduleAllM.isPending}
+              onClick={scheduleEligibleBots}
+              className="h-7 px-2.5 rounded-md bg-foreground text-background text-[11.5px] font-medium inline-flex items-center gap-1.5 disabled:opacity-60"
             >
-              <Sparkles className="h-3.5 w-3.5" />
-              Schedule eligible bots
+              {scheduleAllM.isPending ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="h-3.5 w-3.5" />
+              )}
+              {scheduleAllM.isPending ? "Scheduling…" : "Schedule eligible bots"}
             </button>
           </div>
         }
