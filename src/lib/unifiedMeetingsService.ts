@@ -68,10 +68,22 @@ type ScheduledState = {
 };
 
 const CACHE_TTL_MS = 60_000;
-const STATE_FILE = path.resolve(process.cwd(), "alyson_scheduled_state.json");
 const BOT_JOIN_OFFSET_MS = 2 * 60 * 1000;
 
 let cache: { at: number; meetings: UnifiedMeeting[]; summary: UnifiedMeetingsScanSummary } | null = null;
+
+function stateFilePath(): string {
+  const configured = process.env.ALYSON_SCHEDULED_STATE_PATH?.trim();
+  if (configured) return configured;
+
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  if (isServerless) {
+    const tmpRoot = process.env.TMPDIR?.trim() || "/tmp";
+    return path.join(tmpRoot, "alyson_scheduled_state.json");
+  }
+
+  return path.resolve(process.cwd(), "alyson_scheduled_state.json");
+}
 
 function env(name: string): string {
   const value = process.env[name]?.trim();
@@ -254,8 +266,9 @@ async function getCalendarEventForUser(email: string, googleEventId: string): Pr
 }
 
 async function readState(): Promise<ScheduledState> {
+  const file = stateFilePath();
   try {
-    const raw = await fs.readFile(STATE_FILE, "utf8");
+    const raw = await fs.readFile(file, "utf8");
     const parsed = JSON.parse(raw) as ScheduledState;
     return { scheduled: Array.isArray(parsed?.scheduled) ? parsed.scheduled : [] };
   } catch {
@@ -264,7 +277,9 @@ async function readState(): Promise<ScheduledState> {
 }
 
 async function writeState(state: ScheduledState): Promise<void> {
-  await fs.writeFile(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  const file = stateFilePath();
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }
 
 function dedupeKey(meetingUrl: string, startTime: string): string {
