@@ -701,6 +701,9 @@ function SessionPanel({
           <div className="px-3 py-2 border-b border-border bg-muted/30 text-[10px] uppercase tracking-[0.12em] text-muted-foreground font-medium flex items-center justify-between">
             <span>Live transcript</span>
             <span className="normal-case tracking-normal text-[11px] flex items-center gap-2">
+              <span className="text-muted-foreground/90" title="Indian Standard Time">
+                IST {istDateTimeFromIso(new Date().toISOString())}
+              </span>
               <button
                 type="button"
                 onClick={async () => {
@@ -732,7 +735,9 @@ function SessionPanel({
                         {(L.initials || (L.participant?.name ? initialsFromName(L.participant.name) : "?")).slice(0, 2)}
                       </div>
                       <div className="truncate">{L.participant?.name || "Speaker"}</div>
-                      <div className="ml-auto">{L.clock || clockFromIso(L.received_at)}</div>
+                      <div className="ml-auto" title={istDateTimeFromIso(L.received_at)}>
+                        {L.clock || istClockFromIso(L.received_at)}
+                      </div>
                     </div>
                     <div className="mt-1 text-[13px] leading-relaxed whitespace-pre-wrap">{(L.text || "").trim()}</div>
                   </div>
@@ -891,6 +896,33 @@ function clockFromIso(iso: string) {
   const m = d.getMinutes();
   const s = d.getSeconds();
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function istClockFromIso(iso: string) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(d);
+}
+
+function istDateTimeFromIso(iso: string) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(d);
 }
 
 function notesToPlainText(md: string) {
