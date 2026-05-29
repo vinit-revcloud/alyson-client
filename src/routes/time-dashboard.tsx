@@ -117,7 +117,6 @@ function TimeDashboardPage() {
           employee_id: e.id,
           name: e.name,
           email: e.email,
-          title: e.title ?? "",
           dailySeconds: e.dailySeconds ?? 0,
           monthlySeconds: e.monthlySeconds ?? 0,
         };
@@ -126,8 +125,7 @@ function TimeDashboardPage() {
         if (!normalizedQ) return true;
         return (
           r.name.toLowerCase().includes(normalizedQ) ||
-          r.email.toLowerCase().includes(normalizedQ) ||
-          r.title.toLowerCase().includes(normalizedQ)
+          r.email.toLowerCase().includes(normalizedQ)
         );
       })
       .sort((a, b) => (b.dailySeconds ?? 0) - (a.dailySeconds ?? 0));
@@ -146,7 +144,6 @@ function TimeDashboardPage() {
       employee_id: e.employee_id,
       name: e.name,
       email: e.email,
-      title: e.title,
       daily_hours: Number(((e.dailySeconds ?? 0) / 3600).toFixed(2)),
       monthly_hours: Number(((e.monthlySeconds ?? 0) / 3600).toFixed(2)),
     }));
@@ -186,7 +183,6 @@ function TimeDashboardPage() {
       employeeRollups.map((e) => ({
         employee: e.name,
         email: e.email,
-        title: e.title,
         daily_hours: ((e.dailySeconds ?? 0) / 3600).toFixed(2),
         monthly_hours: ((e.monthlySeconds ?? 0) / 3600).toFixed(2),
       })),
@@ -262,7 +258,7 @@ function TimeDashboardPage() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search employees, roles, departments…"
+              placeholder="Search by name or email…"
               className="w-full h-8 px-3 rounded-md border border-border bg-background text-[13px]"
             />
           </div>
@@ -272,13 +268,21 @@ function TimeDashboardPage() {
         </div>
 
         <TableScroll>
-          <table className="ops-table w-full">
+          <table className="ops-table w-full table-fixed">
+            <colgroup>
+              <col />
+              <col className="w-[7.5rem]" />
+              <col className="w-[8.5rem]" />
+            </colgroup>
             <thead>
               <tr>
                 <th align="left">Employee</th>
-                <th align="left">Title</th>
-                <th align="right">Daily hours</th>
-                <th align="right">Monthly hours</th>
+                <th align="right" className="whitespace-nowrap">
+                  Daily hours
+                </th>
+                <th align="right" className="whitespace-nowrap">
+                  Monthly hours
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -297,7 +301,7 @@ function TimeDashboardPage() {
                     });
                   }}
                 >
-                  <td>
+                  <td className="align-middle">
                     <div className="font-medium text-[13px]">
                       <Link
                         to="/time-dashboard/$userId"
@@ -307,15 +311,19 @@ function TimeDashboardPage() {
                           end: isIsoDate(end) ? end : undefined,
                         }}
                         className="hover:underline"
+                        onClick={(ev) => ev.stopPropagation()}
                       >
                         {e.name}
                       </Link>
                     </div>
-                    <div className="text-[11px] text-muted-foreground truncate max-w-[280px]">{e.email}</div>
+                    <div className="text-[11px] text-muted-foreground truncate">{e.email}</div>
                   </td>
-                  <td className="text-muted-foreground">{e.title || "—"}</td>
-                  <td align="right" className="font-mono">{((e.dailySeconds ?? 0) / 3600).toFixed(2)}</td>
-                  <td align="right" className="font-mono">{((e.monthlySeconds ?? 0) / 3600).toFixed(2)}</td>
+                  <td align="right" className="font-mono tabular-nums align-middle">
+                    {((e.dailySeconds ?? 0) / 3600).toFixed(2)}
+                  </td>
+                  <td align="right" className="font-mono tabular-nums align-middle">
+                    {((e.monthlySeconds ?? 0) / 3600).toFixed(2)}
+                  </td>
                 </tr>
               ))}
             </tbody>
