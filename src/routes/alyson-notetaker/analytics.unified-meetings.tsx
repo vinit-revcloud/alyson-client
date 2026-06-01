@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { CalendarDays, RefreshCw, Sparkles } from "lucide-react";
+import { CalendarDays, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/AppShell";
 import { toast } from "sonner";
 
@@ -79,33 +79,7 @@ export function UnifiedMeetingsPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const scheduleAllM = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/analytics/unified-meetings/schedule-bots", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(String(json?.error || "Schedule failed"));
-      return json as { checked: number; scheduled: number; skipped: number; errors: string[] };
-    },
-    onSuccess: (r) => {
-      void q.refetch();
-      if ((r.errors?.length ?? 0) > 0) {
-        toast.warning(`${r.errors!.length} meeting(s) failed to schedule`, {
-          description: `${r.scheduled} scheduled · ${r.skipped} skipped`,
-        });
-      }
-    },
-  });
-
-  function scheduleEligibleBots() {
-    toast.promise(scheduleAllM.mutateAsync(), {
-      loading: "Scheduling eligible bots…",
-      success: (r) => ({
-        message: "Eligible bots scheduled",
-        description: `${r.scheduled} scheduled · ${r.skipped} skipped · ${r.checked} checked`,
-      }),
-      error: (e) => (e instanceof Error ? e.message : "Failed to schedule bots"),
-    });
-  }
+  // Company-wide bulk schedule + Vercel cron (schedule-bots) disabled — use per-row Schedule Alyson only.
 
   const scheduleOneM = useMutation({
     mutationFn: async (meetingId: string) => {
@@ -135,7 +109,7 @@ export function UnifiedMeetingsPage() {
       <PageHeader
         eyebrow="Operations"
         title="Unified Meetings"
-        description="Upcoming company meetings in the next 24 hours"
+        description="Upcoming company meetings in the next 24 hours. Schedule Alyson per meeting only (no auto cron / bulk schedule)."
         dense
         actions={
           <div className="flex items-center gap-2">
@@ -153,19 +127,6 @@ export function UnifiedMeetingsPage() {
             >
               <RefreshCw className="h-3.5 w-3.5" />
               Refresh
-            </button>
-            <button
-              type="button"
-              disabled={scheduleAllM.isPending}
-              onClick={scheduleEligibleBots}
-              className="h-7 px-2.5 rounded-md bg-foreground text-background text-[11.5px] font-medium inline-flex items-center gap-1.5 disabled:opacity-60"
-            >
-              {scheduleAllM.isPending ? (
-                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" />
-              )}
-              {scheduleAllM.isPending ? "Scheduling…" : "Schedule eligible bots"}
             </button>
           </div>
         }

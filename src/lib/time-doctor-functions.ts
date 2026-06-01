@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { format, parseISO, startOfWeek, subDays } from "date-fns";
+import { clampRange, defaultDetailRange, defaultListRange } from "@/lib/time-dashboard-range";
 
 /**
  * Server-only Time Doctor integration.
@@ -48,7 +49,9 @@ export type TimeDoctorDashboard = {
 };
 
 const EmployeesTableInput = z.object({
-  day: DateSchema.optional(), // YYYY-MM-DD
+  day: DateSchema.optional(), // YYYY-MM-DD (end anchor for daily / week / calendar month)
+  start: DateSchema.optional(),
+  end: DateSchema.optional(),
 });
 
 export type TimeDoctorEmployeeRow = {
@@ -59,6 +62,8 @@ export type TimeDoctorEmployeeRow = {
   dailySeconds: number;
   weeklySeconds: number;
   monthlySeconds: number;
+  /** Productive work seconds between range start and end (selected period). */
+  rangeSeconds: number;
 };
 
 const UserDetailInput = z.object({
@@ -110,6 +115,9 @@ export const fetchTimeDoctorUserDetail = createServerFn({ method: "GET" })
     const user = users.find((u) => u.id === data.userId) ?? { id: data.userId, name: `Employee ${data.userId}`, email: "", title: "" };
 
     const warnings: string[] = [];
+    if (range.clipped) {
+      warnings.push("Date range was capped to 366 days for performance.");
+    }
 
     if (tab === "apps") {
       const appUsage = await listCompanyAppUsage(company.id, range, data.userId, { auth: "access_only" }).catch((e) => {
@@ -363,20 +371,26 @@ async function fetchCompanyPoorSecondsForUserOnDay(
 export const fetchTimeDoctorEmployeesTable = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => EmployeesTableInput.parse(data))
   .handler(async ({ data }) => {
-    const day = data.day ?? format(new Date(), "yyyy-MM-dd");
+    const defaults = defaultListRange();
+    const end = data.end ?? data.day ?? defaults.end;
+    const start = data.start ?? defaults.start;
+    const day = end;
+    const period = clampRange(start, end);
     const company = await getCompany({ auth: "access_only" });
 
-    const [usersR, dailyR, weeklyR, monthlyR] = await Promise.allSettled([
+    const [usersR, dailyR, weeklyR, monthlyR, periodR] = await Promise.allSettled([
       listUsers(company.id, { auth: "access_only" }),
       listDailyWorkSecondsByUser(company.id, day, { auth: "access_only" }),
       listWeekToDateWorkSecondsByUser(company.id, day, { auth: "access_only" }),
       listMonthToDateWorkSecondsByUser(company.id, day, { auth: "access_only" }),
+      listWorkSecondsByUserForRange(company.id, period.start, period.end, { auth: "access_only" }),
     ]);
 
     const users = usersR.status === "fulfilled" ? usersR.value : [];
     const daily = dailyR.status === "fulfilled" ? dailyR.value : new Map<string, number>();
     const weekly = weeklyR.status === "fulfilled" ? weeklyR.value : new Map<string, number>();
     const monthly = monthlyR.status === "fulfilled" ? monthlyR.value : new Map<string, number>();
+    const periodMap = periodR.status === "fulfilled" ? periodR.value : new Map<string, number>();
 
     const rows: TimeDoctorEmployeeRow[] = users
       .map((u) => ({
@@ -387,18 +401,22 @@ export const fetchTimeDoctorEmployeesTable = createServerFn({ method: "GET" })
         dailySeconds: daily.get(u.id) ?? 0,
         weeklySeconds: weekly.get(u.id) ?? 0,
         monthlySeconds: monthly.get(u.id) ?? 0,
+        rangeSeconds: periodMap.get(u.id) ?? 0,
       }))
-      .sort((a, b) => (b.dailySeconds ?? 0) - (a.dailySeconds ?? 0));
+      .sort((a, b) => (b.rangeSeconds ?? 0) - (a.rangeSeconds ?? 0));
 
     return {
       company,
       day,
+      range: { start: period.start, end: period.end },
       warnings: [
+        ...(period.clipped ? [`Range capped to last 366 days (requested ${start} → ${end}).`] : []),
         ...(usersR.status === "rejected" ? [`users: ${String(usersR.reason)}`] : []),
         ...(dailyR.status === "rejected" ? [`daily-worklogs: ${String(dailyR.reason)}`] : []),
         ...(weeklyR.status === "rejected" ? [`weekly-worklogs: ${String(weeklyR.reason)}`] : []),
         ...(monthlyR.status === "rejected" ? [`monthly-worklogs: ${String(monthlyR.reason)}`] : []),
-      ].slice(0, 5),
+        ...(periodR.status === "rejected" ? [`period-worklogs: ${String(periodR.reason)}`] : []),
+      ].slice(0, 6),
       employees: rows,
     };
   });
@@ -410,10 +428,12 @@ export const fetchTimeDoctorDashboard = createServerFn({ method: "GET" })
     return await buildDashboard(range);
   });
 
-function getRange(input: { start?: string; end?: string }): DashboardRange {
-  const end = input.end ?? format(new Date(), "yyyy-MM-dd");
-  const start = input.start ?? format(subDays(new Date(end), 13), "yyyy-MM-dd");
-  return { start, end };
+function getRange(input: { start?: string; end?: string }): DashboardRange & { clipped?: boolean } {
+  const defaults = defaultDetailRange();
+  const end = input.end ?? defaults.end;
+  const start = input.start ?? defaults.start;
+  const period = clampRange(start, end);
+  return { start: period.start, end: period.end, clipped: period.clipped };
 }
 
 function productivityScore(productiveSeconds: number, poorSeconds: number): number {
@@ -1193,6 +1213,53 @@ async function listMonthToDateWorkSecondsByUser(
 ): Promise<Map<string, number>> {
   const monthStart = `${day.slice(0, 8)}01`;
   return sumWorkSecondsForDayRange(companyId, monthStart, day, opts);
+}
+
+/** Sum work seconds per user across a date range (paginated company worklogs). */
+async function listWorkSecondsByUserForRange(
+  companyId: string,
+  rangeStart: string,
+  rangeEnd: string,
+  opts?: { auth?: "auto_refresh" | "access_only" },
+): Promise<Map<string, number>> {
+  type WorklogItem = { user_id?: string | number; length?: string | number };
+  type WorklogsResponse = { worklogs?: { items?: WorklogItem[] } };
+
+  const limit = 200;
+  let offset = 0;
+  const out = new Map<string, number>();
+
+  for (let i = 0; i < 2000; i++) {
+    const payload = await upstreamFetch<WorklogsResponse>(`/companies/${companyId}/worklogs`, {
+      params: {
+        start_date: rangeStart,
+        end_date: rangeEnd,
+        offset,
+        limit,
+        consolidated: 1,
+        breaks_only: 0,
+        _format: "json",
+      },
+      auth: opts?.auth,
+    });
+
+    const items = payload.worklogs?.items ?? [];
+    for (const it of items) {
+      if (it.user_id == null) continue;
+      const id = String(it.user_id);
+      const secondsRaw = it.length ?? 0;
+      const seconds =
+        typeof secondsRaw === "string"
+          ? Number.parseInt(secondsRaw, 10) || 0
+          : Number(secondsRaw) || 0;
+      out.set(id, (out.get(id) ?? 0) + seconds);
+    }
+
+    if (items.length < limit) break;
+    offset += limit;
+  }
+
+  return out;
 }
 
 async function seedUsersFromWorklogs(companyId: string): Promise<Array<{ id: string; name: string; email?: string; title?: string }>> {

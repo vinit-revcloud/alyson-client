@@ -230,16 +230,16 @@ BOT_NAME=Alyson Notetaker
 1. Start app: `npm run dev`
 2. Open `Alyson Notetaker -> Unified Meetings`
 3. Dashboard auto-refreshes every 60 seconds (manual Refresh is also available)
-4. Auto-scheduling is initially enabled only for `thirumalai@cintara.ai`
+4. **No Vercel cron / bulk schedule** — company-wide auto-schedule is disabled
 5. Alyson join time is `startTime - 2 minutes`
-6. Manual **Schedule Alyson** row action can schedule any eligible meeting
+6. Use per-row **Schedule Alyson** on Unified Meetings for each meeting you want
 
 ### API endpoints
 
 - `GET /api/analytics/unified-meetings`
 - `POST /api/analytics/unified-meetings/refresh`
-- `POST /api/analytics/unified-meetings/schedule-bots`
-- `POST /api/analytics/unified-meetings/:meetingId/schedule`
+- `POST /api/analytics/unified-meetings/:meetingId/schedule` (per meeting)
+- `GET|POST /api/analytics/unified-meetings/schedule-bots` → **410 disabled** (was cron + bulk)
 
 ---
 

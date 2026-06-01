@@ -1,9 +1,16 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader, TableScroll, EmptyState } from "@/components/AppShell";
 import { PageSkeleton } from "@/components/Skeleton";
+import { TimeDashboardRangePicker } from "@/components/TimeDashboardRangePicker";
 import { fetchTimeDoctorUserDetail, type TimeDoctorUserDetail } from "@/lib/time-doctor-functions";
+import {
+  defaultDetailRange,
+  formatMonthLabel,
+  formatRangeLabel,
+  isIsoDate,
+} from "@/lib/time-dashboard-range";
 import { ArrowLeft, Download, RefreshCw, Clock } from "lucide-react";
 import { downloadCSV } from "@/lib/csv";
 import { toast } from "sonner";
@@ -47,20 +54,42 @@ const PIE_COLORS: Record<string, string> = {
   distracting: "var(--chart-2)",
 };
 
-function isIsoDate(v: unknown): v is string {
-  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
-}
-
 function TimeDoctorEmployeePage() {
   const { userId } = Route.useParams();
+  const navigate = useNavigate();
   const [tab, setTab] = useState<TabKey>("overview");
 
   const search = Route.useSearch();
-  // Default: last 14 days like workforce_analytics.
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const defaultStart = useMemo(() => new Date(Date.now() - 13 * 86400000).toISOString().slice(0, 10), []);
-  const start = search.start ?? defaultStart;
-  const end = search.end ?? today;
+  const detailDefaults = useMemo(() => defaultDetailRange(), []);
+  const start = search.start ?? detailDefaults.start;
+  const end = search.end ?? detailDefaults.end;
+
+  const [draftStart, setDraftStart] = useState(start);
+  const [draftEnd, setDraftEnd] = useState(end);
+
+  useEffect(() => {
+    setDraftStart(start);
+    setDraftEnd(end);
+  }, [start, end]);
+
+  const applyRange = () => {
+    if (!isIsoDate(draftStart) || !isIsoDate(draftEnd)) {
+      toast.error("Enter valid start and end dates");
+      return;
+    }
+    if (draftStart > draftEnd) {
+      toast.error("Start date must be on or before end date");
+      return;
+    }
+    navigate({
+      to: "/time-dashboard/$userId",
+      params: { userId },
+      search: { start: draftStart, end: draftEnd },
+      replace: true,
+    });
+  };
+
+  const listSearch = { start: isIsoDate(start) ? start : undefined, end: isIsoDate(end) ? end : undefined };
 
   const q = useQuery({
     queryKey: ["time-doctor-user", userId, start, end, tab],
@@ -117,26 +146,60 @@ function TimeDoctorEmployeePage() {
       toast.success("Work exported");
       return;
     }
+    if (tab === "overview" && data.rollups?.monthly?.length) {
+      downloadCSV(
+        `time-doctor-monthly-${userId}-${start}-${end}.csv`,
+        data.rollups.monthly.map((m) => ({
+          month: m.month,
+          productive_hours: (m.productiveSeconds / 3600).toFixed(2),
+          poor_hours: (m.poorSeconds / 3600).toFixed(2),
+        })),
+      );
+      toast.success("Monthly rollups exported");
+      return;
+    }
     toast.error("Nothing to export on this tab yet");
   };
+
+  const monthlyChartData = useMemo(() => {
+    if (!data?.rollups?.monthly?.length) return [];
+    return data.rollups.monthly.map((m) => ({
+      month: formatMonthLabel(m.month),
+      monthKey: m.month,
+      productiveH: m.productiveSeconds / 3600,
+      poorH: m.poorSeconds / 3600,
+    }));
+  }, [data?.rollups?.monthly]);
 
   return (
     <div className="ops-dense">
       <PageHeader
         eyebrow="People"
         title={user.name}
-        description={user.email ? `${user.email} · Time Doctor` : "Time Doctor"}
+        description={
+          user.email
+            ? `${user.email} · Time Doctor · ${formatRangeLabel(start, end)}`
+            : `Time Doctor · ${formatRangeLabel(start, end)}`
+        }
         dense
         actions={
           <>
             <Link
               to="/time-dashboard"
-              search={{}}
+              search={listSearch}
               className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Back
             </Link>
+            <TimeDashboardRangePicker
+              start={draftStart}
+              end={draftEnd}
+              onStartChange={setDraftStart}
+              onEndChange={setDraftEnd}
+              onApply={applyRange}
+              compact
+            />
             <div className="inline-flex rounded-md border border-border p-0.5 bg-paper">
               {([
                 ["overview", "Overview"],
@@ -274,6 +337,54 @@ function TimeDoctorEmployeePage() {
               </div>
             </div>
 
+            {monthlyChartData.length > 0 && (
+              <div className="surface-card p-4 md:p-5">
+                <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground font-medium">Rollups</div>
+                    <h3 className="font-display text-lg mt-0.5">Hours by month</h3>
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={monthlyChartData} margin={{ top: 5, right: 10, bottom: 0, left: 0 }}>
+                    <CartesianGrid stroke="var(--border)" vertical={false} />
+                    <XAxis dataKey="month" stroke="var(--muted-foreground)" fontSize={10} interval={0} angle={-25} textAnchor="end" height={56} />
+                    <YAxis stroke="var(--muted-foreground)" fontSize={11} />
+                    <Tooltip
+                      contentStyle={{ background: "var(--paper)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 12 }}
+                      formatter={(v: any, n: any) => [`${Number(v ?? 0).toFixed(2)}h`, String(n)] as [string, string]}
+                    />
+                    <Bar dataKey="productiveH" name="Productive" fill="var(--chart-3)" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="poorH" name="Poor" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+                <TableScroll>
+                  <table className="ops-table w-full mt-4">
+                    <thead>
+                      <tr>
+                        <th align="left">Month</th>
+                        <th align="right">Productive</th>
+                        <th align="right">Poor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {monthlyChartData.map((m) => (
+                        <tr key={m.monthKey}>
+                          <td>{m.month}</td>
+                          <td align="right" className="font-mono tabular-nums">
+                            {m.productiveH.toFixed(2)}h
+                          </td>
+                          <td align="right" className="font-mono tabular-nums">
+                            {m.poorH.toFixed(2)}h
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableScroll>
+              </div>
+            )}
+
             {!data.overview?.dailyTrend?.length ? (
               <EmptyState icon={Clock} title="No worklogs found" description="This user has no Time Doctor worklogs in the selected range." />
             ) : (
@@ -281,7 +392,7 @@ function TimeDoctorEmployeePage() {
                 <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
                   <div>
                     <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground font-medium">Trend</div>
-                    <h3 className="font-display text-lg mt-0.5">Productive vs poor time</h3>
+                    <h3 className="font-display text-lg mt-0.5">Productive vs poor time (daily)</h3>
                   </div>
                 </div>
                 <ResponsiveContainer width="100%" height={260}>

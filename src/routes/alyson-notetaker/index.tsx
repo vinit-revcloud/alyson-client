@@ -66,6 +66,19 @@ function AlysonNotetakerPage() {
     }
   }, [isSuperAdmin, picked, sessionsQ.data]);
 
+  const sessions = sessionsQ.data?.sessions ?? [];
+  const hasRecallConfig = sessionsQ.data?.hasRecallConfig ?? false;
+  const sessionsLoading = sessionsQ.isLoading && !sessionsQ.data;
+  const filteredSessions = useMemo(() => {
+    const q = sessionsSearch.trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter((s) => {
+      const title = String(s.title || "").toLowerCase();
+      const id = String(s.botId || "").toLowerCase();
+      return title.includes(q) || id.includes(q);
+    });
+  }, [sessions, sessionsSearch]);
+
   if (!isSuperAdmin) {
     return (
       <div className="ops-dense">
@@ -105,19 +118,6 @@ function AlysonNotetakerPage() {
       </div>
     );
   }
-
-  const sessions = sessionsQ.data?.sessions ?? [];
-  const hasRecallConfig = sessionsQ.data?.hasRecallConfig ?? false;
-  const sessionsLoading = sessionsQ.isLoading && !sessionsQ.data;
-  const filteredSessions = useMemo(() => {
-    const q = sessionsSearch.trim().toLowerCase();
-    if (!q) return sessions;
-    return sessions.filter((s) => {
-      const title = String(s.title || "").toLowerCase();
-      const id = String(s.botId || "").toLowerCase();
-      return title.includes(q) || id.includes(q);
-    });
-  }, [sessions, sessionsSearch]);
 
   return (
     <div className="ops-dense">

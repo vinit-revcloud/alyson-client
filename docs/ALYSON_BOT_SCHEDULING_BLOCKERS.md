@@ -17,7 +17,7 @@ We built an automated pipeline that:
 4. Joins **2 minutes before** start (or immediately if join time is already past)  
 5. Surfaces bots in **Unified Meetings** and (when configured correctly) **live transcripts** in Alyson Notetaker  
 
-**Goal:** No manual paste of Meet links; Alyson joins eligible calls automatically.
+**Goal:** Schedule Alyson selectively (per meeting / future email allowlist). **Company-wide cron and bulk schedule are disabled** (May 2026).
 
 **Current gap vs Fireflies:** Calendar automation exists, but **production durability**, **Notetaker/Recall billing**, and **live transcript consistency** are not yet at “set and forget” quality.
 
@@ -28,8 +28,7 @@ We built an automated pipeline that:
 ```mermaid
 flowchart LR
   subgraph triggers
-    Cron[Vercel Cron every 5 min]
-    Manual[Unified Meetings UI]
+    Manual[Unified Meetings UI\nper-row Schedule Alyson]
   end
   subgraph alyson_client
     Scan[DWD: list users + calendars]
@@ -43,9 +42,8 @@ flowchart LR
   subgraph state
     StateFile[alyson_scheduled_state.json]
   end
-  Cron --> Scan
-  Manual --> Scan
-  Scan --> Skip --> Schedule
+  Manual --> Schedule
+  Scan --> Skip
   Schedule --> NT
   NT -->|fail| Recall
   Schedule --> StateFile
@@ -61,7 +59,7 @@ flowchart LR
 | Join time | `startTime - 2 minutes`, or now if that time passed but meeting not started |
 | Preferred bot path | `ALYSON_NOTETAKER_BASE_URL` → `/api/create-bot` (same as manual Notetaker) |
 | Fallback | Direct Recall API with `RECALL_API_KEY` |
-| Automation | `vercel.json` cron → `GET/POST /api/analytics/unified-meetings/schedule-bots` |
+| Automation | **Disabled** — was `vercel.json` cron → `schedule-bots`; use per-meeting `/:meetingId/schedule` only |
 | Scheduled state | File: `alyson_scheduled_state.json` (local or `/tmp` on Vercel) |
 
 ---
@@ -70,7 +68,7 @@ flowchart LR
 
 - Unified Meetings UI: list meetings, filters, manual **Schedule Alyson**, bot status, bot ID copy  
 - DWD calendar scan for `GOOGLE_WORKSPACE_DOMAIN` users (when credentials/scopes are valid)  
-- Auto-schedule cron (every 5 minutes) when deployed with env + cron enabled  
+- ~~Auto-schedule cron (every 5 minutes)~~ **removed / disabled** — manual per-meeting only  
 - One-bot-per-meeting deduplication  
 - Manual schedule optimized (single event fetch vs full-domain rescan)  
 - Notetaker-managed bots → live transcripts (when Notetaker service + Recall credits are healthy)  
@@ -121,8 +119,8 @@ flowchart LR
 | `BOT_NAME` | Bot display name in Meet |
 | `ALYSON_NOTETAKER_BASE_URL` | Preferred bot + live transcripts |
 | `ALYSON_SCHEDULED_STATE_PATH` | Writable state in serverless (e.g. `/tmp/...`) |
-| `ALYSON_SCHEDULE_CALENDAR_CRON_SECRET` | Optional cron hardening |
-| Vercel cron in `vercel.json` | Hands-free schedule every 5 min |
+| `ALYSON_SCHEDULE_CALENDAR_CRON_SECRET` | Unused while cron disabled |
+| Vercel cron in `vercel.json` | **Do not enable** until email allowlist exists |
 
 **DWD scopes currently required (Unified Meetings):**
 
