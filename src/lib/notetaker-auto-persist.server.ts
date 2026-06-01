@@ -1,6 +1,7 @@
 import type { NotetakerSession, NotetakerTranscriptLine } from "@/lib/alyson-notetaker-functions";
 import { generateNotetakerNotes } from "@/lib/alyson-notetaker-functions";
 import { composeTranscript, persistMeetingToS3 } from "@/lib/notetaker-persistence.server";
+import { withResolvedMeetingTitle } from "@/lib/notetaker-session-title.server";
 import { generateSmartMeetingNotes } from "@/lib/notetaker-smart-notes";
 import {
   isMeetingPersistedInS3,
@@ -105,9 +106,11 @@ export async function autoPersistEndedMeetingToS3(args: {
     }
   }
 
+  const session = await withResolvedMeetingTitle(args.session);
+
   const notes = await resolveNotesForS3({
     botId,
-    session: args.session,
+    session,
     lines: args.lines,
     existingNotesMd: args.existingNotesMd,
     existingNotesModel: args.existingNotesModel,
@@ -115,14 +118,14 @@ export async function autoPersistEndedMeetingToS3(args: {
   });
 
   await persistMeetingToS3({
-    session: args.session,
+    session,
     lines: args.lines,
     notes: notes ? { notesMd: notes.notesMd, model: notes.model } : null,
   });
 
   try {
     await appendSessionToS3Index({
-      ...args.session,
+      ...session,
       status: "persisted",
     });
     const { invalidatePersistedSessionsS3Cache } = await import("@/lib/notetaker-sessions-history.server");

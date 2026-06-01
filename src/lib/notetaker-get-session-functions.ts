@@ -7,6 +7,7 @@ import type {
 } from "@/lib/alyson-notetaker-functions";
 import { getPersistedSession, persistSession } from "@/lib/notetaker-datastore.server";
 import { autoPersistEndedMeetingToS3 } from "@/lib/notetaker-auto-persist.server";
+import { withResolvedMeetingTitle } from "@/lib/notetaker-session-title.server";
 import { loadPersistedSessionPayloadFromS3 } from "@/lib/notetaker-sessions-history.server";
 import { notetakerUpstream } from "@/lib/notetaker-upstream.server";
 
@@ -143,7 +144,7 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
 
         try {
           const auto = await autoPersistEndedMeetingToS3({
-            session: typed.session,
+            session: await withResolvedMeetingTitle(typed.session),
             lines: typed.lines,
             existingNotesMd: typed.notesMd,
             existingNotesModel: typed.notesModel,

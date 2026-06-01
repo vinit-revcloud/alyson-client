@@ -1,5 +1,6 @@
 import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import type { Readable } from "node:stream";
+import { isGenericMeetingTitle, resolveMeetingTitle } from "@/lib/notetaker-session-title.server";
 
 function requireEnv(name: string) {
   const v = process.env[name];
@@ -48,6 +49,73 @@ export type S3Meeting = {
   startedAt: string | null;
 };
 
+type BotIndexDoc = {
+  version: number;
+  botId: string;
+  title?: string;
+  prefix: string;
+};
+
+async function listBotIndexDocs(client: S3Client, bucket: string): Promise<BotIndexDoc[]> {
+  const out: BotIndexDoc[] = [];
+  const base = "alyson-notetaker/bot-index/";
+  let token: string | undefined;
+
+  do {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: base,
+      }),
+    );
+    for (const obj of page.Contents ?? []) {
+      const key = String(obj.Key || "");
+      if (!key.endsWith(".json")) continue;
+      try {
+        const r = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+        if (!r.Body) continue;
+        const parsed = JSON.parse(await streamToString(r.Body)) as BotIndexDoc;
+        if (parsed?.version === 1 && parsed.botId && parsed.prefix) out.push(parsed);
+      } catch {
+        // skip corrupt index entries
+      }
+    }
+    token = page.NextContinuationToken;
+  } while (token);
+
+  return out;
+}
+
+/** Map S3 folder prefix → display title from bot-index + sessions catalog. */
+async function loadTitleByPrefix(botIndexDocs: BotIndexDoc[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+
+  for (const parsed of botIndexDocs) {
+    const prefix = String(parsed.prefix || "").trim();
+    const title = String(parsed.title || "").trim();
+    if (prefix && title && !isGenericMeetingTitle(title)) out.set(prefix, title);
+  }
+
+  try {
+    const { getNotetakerSessionsIndexFromS3 } = await import("@/lib/notetaker-sessions-s3.server");
+    const idx = await getNotetakerSessionsIndexFromS3();
+    const byBotId = new Map(botIndexDocs.map((d) => [String(d.botId), d]));
+
+    for (const s of idx.sessions ?? []) {
+      const botId = String(s.botId || "").trim();
+      const title = String(s.title || "").trim();
+      if (!botId || !title || isGenericMeetingTitle(title)) continue;
+      const doc = byBotId.get(botId);
+      const prefix = String(doc?.prefix || "").trim();
+      if (prefix && !out.has(prefix)) out.set(prefix, title);
+    }
+  } catch {
+    // sessions index optional
+  }
+
+  return out;
+}
+
 export async function listMeetingsFromS3({ start, end }: { start: string; end: string }) {
   const bucket = requireEnvAlias("AWS_S3_BUCKET", ["S3_BUCKET"]);
   const client = s3();
@@ -87,6 +155,9 @@ export async function listMeetingsFromS3({ start, end }: { start: string; end: s
   );
 
   const prefixes = Array.from(new Set([...notesPrefixes, ...transcriptPrefixes]));
+  const botIndexDocs = await listBotIndexDocs(client, bucket);
+  const botIndexByPrefix = new Map(botIndexDocs.map((d) => [String(d.prefix), d]));
+  const titleByPrefix = await loadTitleByPrefix(botIndexDocs);
 
   // 2) Build meeting rows, filter by day in [start, end]
   const rows: S3Meeting[] = [];
@@ -94,10 +165,22 @@ export async function listMeetingsFromS3({ start, end }: { start: string; end: s
     const parsed = parsePrefix(p);
     const day = parsed.date;
     if (!day || day < start || day > end) continue;
+
+    let title = titleByPrefix.get(p) || parsed.title || "Meeting";
+    if (isGenericMeetingTitle(title)) {
+      const idx = botIndexByPrefix.get(p);
+      if (idx?.botId) {
+        title = await resolveMeetingTitle({
+          botId: String(idx.botId),
+          title: idx.title || title,
+        });
+      }
+    }
+
     rows.push({
       prefix: p,
       day,
-      title: parsed.title || "Meeting",
+      title,
       startedAt: parsed.startedAt,
       notesKey: notesPrefixes.has(p) ? `${notesBase}${p}/notes.md` : null,
       transcriptKey: transcriptPrefixes.has(p) ? `${transcriptBase}${p}/transcript.txt` : null,

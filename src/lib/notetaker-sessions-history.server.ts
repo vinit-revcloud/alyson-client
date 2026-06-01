@@ -58,6 +58,7 @@ function parseMeetingPrefix(prefix: string) {
 type BotIndexDoc = {
   version: number;
   botId: string;
+  title?: string;
   prefix: string;
   transcriptKey?: string;
   notesKey?: string | null;
@@ -129,9 +130,10 @@ async function listSessionsFromBotIndex(): Promise<NotetakerSession[]> {
         const parsed = JSON.parse(await streamToString(r.Body)) as BotIndexDoc;
         if (!parsed?.botId || parsed.version !== 1) continue;
         const meta = parseMeetingPrefix(String(parsed.prefix || ""));
+        const storedTitle = String(parsed.title || "").trim();
         out.push({
           botId: String(parsed.botId),
-          title: meta.title,
+          title: storedTitle || meta.title,
           createdAt: String(parsed.finalizedAt || meta.startedAt || obj.LastModified?.toISOString() || ""),
           status: "persisted",
         });
@@ -243,6 +245,7 @@ export async function loadPersistedSessionPayloadFromS3(botId: string): Promise<
   }
 
   const meta = parseMeetingPrefix(String(idx?.prefix || ""));
+  const storedTitle = String(idx?.title || "").trim();
   let notesMd: string | null = null;
   if (idx?.notesKey) {
     try {
@@ -255,10 +258,18 @@ export async function loadPersistedSessionPayloadFromS3(botId: string): Promise<
   const lines = linesFromPlainTranscript(transcriptText);
   const speakers = new Set(lines.map((l) => l.participant?.name).filter(Boolean));
 
+  let title = storedTitle || meta.title;
+  if (!storedTitle) {
+    const { resolveMeetingTitle, isGenericMeetingTitle } = await import("@/lib/notetaker-session-title.server");
+    if (isGenericMeetingTitle(title)) {
+      title = await resolveMeetingTitle({ botId, title });
+    }
+  }
+
   return {
     session: {
       botId,
-      title: meta.title,
+      title,
       createdAt: String(idx?.finalizedAt || meta.startedAt || new Date().toISOString()),
       status: "persisted",
     },

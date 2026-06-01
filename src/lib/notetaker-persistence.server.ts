@@ -1,5 +1,6 @@
 import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { NotetakerSession, NotetakerTranscriptLine } from "@/lib/alyson-notetaker-functions";
+import { withResolvedMeetingTitle } from "@/lib/notetaker-session-title.server";
 
 function requireEnv(name: string) {
   const v = process.env[name];
@@ -97,6 +98,7 @@ export async function persistMeetingToS3({
 }) {
   const bucket = requireEnvAlias("AWS_S3_BUCKET", ["S3_BUCKET"]);
   await ensureBucketExists(bucket);
+  session = await withResolvedMeetingTitle(session);
   const prefix = buildS3Prefix(session);
   const transcriptKey = `alyson-notetaker/transcripts/${prefix}/transcript.txt`;
   const notesKey = `alyson-notetaker/meetingnotes/${prefix}/notes.md`;
@@ -145,6 +147,7 @@ export async function persistMeetingToS3({
         {
           version: 1,
           botId: session.botId,
+          title: session.title,
           prefix,
           transcriptKey,
           notesKey: notes?.notesMd ? notesKey : null,

@@ -3,6 +3,7 @@ import type {
   NotetakerSessionPayload,
 } from "@/lib/alyson-notetaker-functions";
 import { autoPersistEndedMeetingToS3 } from "@/lib/notetaker-auto-persist.server";
+import { withResolvedMeetingTitle } from "@/lib/notetaker-session-title.server";
 import { isMeetingPersistedInS3 } from "@/lib/notetaker-sessions-history.server";
 import { notetakerUpstream } from "@/lib/notetaker-upstream.server";
 import { listAllUnifiedScheduledBotSessions } from "@/lib/unifiedMeetingsService";
@@ -114,7 +115,7 @@ export async function autoPersistDiscoverableSessions(sessions: NotetakerSession
         const payload = normalizeSessionPayload(res, botId);
         if (!payload?.lines?.length) return;
         await autoPersistEndedMeetingToS3({
-          session: payload.session,
+          session: await withResolvedMeetingTitle(payload.session),
           lines: payload.lines,
         });
       } catch {
