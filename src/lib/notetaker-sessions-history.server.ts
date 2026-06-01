@@ -2,7 +2,10 @@ import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/clien
 import type { Readable } from "node:stream";
 import type { NotetakerSession, NotetakerSessionPayload } from "@/lib/alyson-notetaker-functions";
 import { getNotesMdFromS3, getTranscriptTextFromS3 } from "@/lib/notetaker-s3-calendar.server";
-import { getNotetakerSessionsIndexFromS3 } from "@/lib/notetaker-sessions-s3.server";
+import {
+  getNotetakerSessionsIndexFromS3,
+  putNotetakerSessionsIndexToS3,
+} from "@/lib/notetaker-sessions-s3.server";
 
 function requireEnvAlias(primary: string, aliases: string[]) {
   const v = process.env[primary] || aliases.map((a) => process.env[a]).find(Boolean);
@@ -142,8 +145,32 @@ async function listSessionsFromBotIndex(): Promise<NotetakerSession[]> {
   return out;
 }
 
-/** All persisted meetings discoverable from S3 (index snapshot + per-bot index files). */
-export async function listPersistedSessionsFromS3(): Promise<NotetakerSession[]> {
+/**
+ * Merge incoming sessions into the S3 catalog index (never drop existing entries).
+ * Also folds in per-bot index files so history survives upstream TTL expiry.
+ */
+export async function mergeSessionsIndexToS3(incoming: NotetakerSession[]): Promise<NotetakerSession[]> {
+  let existing: NotetakerSession[] = [];
+  try {
+    existing = (await getNotetakerSessionsIndexFromS3()).sessions ?? [];
+  } catch {
+    // index may not exist yet
+  }
+  const fromBotIndex = await listSessionsFromBotIndex();
+  const merged = mergeNotetakerSessions(existing, fromBotIndex, incoming);
+  await putNotetakerSessionsIndexToS3({ sessions: merged });
+  return merged;
+}
+
+const s3IndexCache = { at: 0, sessions: [] as NotetakerSession[] };
+const S3_INDEX_CACHE_MS = 20_000;
+
+async function listPersistedSessionsFromS3IndexOnly(): Promise<NotetakerSession[]> {
+  const now = Date.now();
+  if (now - s3IndexCache.at < S3_INDEX_CACHE_MS && s3IndexCache.sessions.length) {
+    return s3IndexCache.sessions;
+  }
+
   const fromIndex: NotetakerSession[] = [];
   try {
     const idx = await getNotetakerSessionsIndexFromS3();
@@ -158,8 +185,27 @@ export async function listPersistedSessionsFromS3(): Promise<NotetakerSession[]>
     // index may not exist yet
   }
 
-  const fromBotIndex = await listSessionsFromBotIndex();
-  return mergeNotetakerSessions(fromIndex, fromBotIndex);
+  s3IndexCache.at = now;
+  s3IndexCache.sessions = fromIndex;
+  return fromIndex;
+}
+
+/** All persisted meetings discoverable from S3 (index snapshot + per-bot index files). */
+export async function listPersistedSessionsFromS3(options?: {
+  /** Full S3 scan is slow; default false for session list UI. */
+  includeBotIndex?: boolean;
+}): Promise<NotetakerSession[]> {
+  const fromIndex = await listPersistedSessionsFromS3IndexOnly();
+  if (options?.includeBotIndex) {
+    const fromBotIndex = await listSessionsFromBotIndex();
+    return mergeNotetakerSessions(fromIndex, fromBotIndex);
+  }
+  return fromIndex;
+}
+
+export function invalidatePersistedSessionsS3Cache() {
+  s3IndexCache.at = 0;
+  s3IndexCache.sessions = [];
 }
 
 export async function isMeetingPersistedInS3(botId: string): Promise<boolean> {

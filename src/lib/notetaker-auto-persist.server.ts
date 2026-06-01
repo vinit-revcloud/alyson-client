@@ -125,6 +125,8 @@ export async function autoPersistEndedMeetingToS3(args: {
       ...args.session,
       status: "persisted",
     });
+    const { invalidatePersistedSessionsS3Cache } = await import("@/lib/notetaker-sessions-history.server");
+    invalidatePersistedSessionsS3Cache();
   } catch {
     // transcript/notes saved; index update is best-effort
   }

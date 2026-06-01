@@ -2,14 +2,13 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PageHeader, EmptyState } from "@/components/AppShell";
-import { PageSkeleton } from "@/components/Skeleton";
 import {
   listNotetakerSessions,
   createNotetakerRecallBot,
   generateNotetakerNotes,
   type NotetakerTranscriptLine,
 } from "@/lib/alyson-notetaker-functions";
-import { getNotetakerSession } from "@/lib/notetaker-get-session-functions";
+import { getNotetakerSession, loadNotetakerSessionArchive } from "@/lib/notetaker-get-session-functions";
 import { Captions, Plus, RefreshCw, Sparkles, Copy, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
@@ -31,6 +30,10 @@ function AlysonNotetakerPage() {
     queryKey: ["alyson-notetaker", "sessions"],
     queryFn: () => listNotetakerSessions(),
     enabled: isSuperAdmin,
+    staleTime: 20_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: 30_000,
+    placeholderData: (prev) => prev,
   });
   const [picked, setPicked] = useState<string | null>(null);
   const [sessionsSearch, setSessionsSearch] = useState("");
@@ -80,9 +83,7 @@ function AlysonNotetakerPage() {
     );
   }
 
-  if (sessionsQ.isLoading) return <PageSkeleton />;
-
-  if (sessionsQ.isError) {
+  if (sessionsQ.isError && !sessionsQ.data) {
     const msg = sessionsQ.error instanceof Error ? sessionsQ.error.message : "Failed to load sessions.";
     return (
       <div className="ops-dense">
@@ -107,6 +108,7 @@ function AlysonNotetakerPage() {
 
   const sessions = sessionsQ.data?.sessions ?? [];
   const hasRecallConfig = sessionsQ.data?.hasRecallConfig ?? false;
+  const sessionsLoading = sessionsQ.isLoading && !sessionsQ.data;
   const filteredSessions = useMemo(() => {
     const q = sessionsSearch.trim().toLowerCase();
     if (!q) return sessions;
@@ -256,7 +258,13 @@ function AlysonNotetakerPage() {
                 className="w-full h-8 px-3 rounded-md border border-border bg-background text-[13px] mb-2"
               />
 
-              {filteredSessions.length === 0 ? (
+              {sessionsLoading ? (
+                <div className="space-y-2 py-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="h-12 rounded-md bg-muted/50 animate-pulse" />
+                  ))}
+                </div>
+              ) : filteredSessions.length === 0 ? (
                 <EmptyState
                   icon={Captions}
                   title="No sessions yet"
@@ -312,6 +320,7 @@ function AlysonNotetakerPage() {
             botId={picked}
             fallbackTitle={sessions.find((s) => s.botId === picked)?.title || null}
             onSessionsChange={() => sessionsQ.refetch()}
+            deferLoad={sessionsLoading}
           />
         </div>
       </div>
@@ -437,10 +446,12 @@ function SessionPanel({
   botId,
   fallbackTitle,
   onSessionsChange,
+  deferLoad,
 }: {
   botId: string | null;
   fallbackTitle?: string | null;
   onSessionsChange?: () => void;
+  deferLoad?: boolean;
 }) {
   const qc = useQueryClient();
   const autoPersistToastRef = useRef<string | null>(null);
@@ -459,24 +470,29 @@ function SessionPanel({
         }
         return res as any;
       } catch (e) {
-        const message = e instanceof Error ? e.message : "Session metadata unavailable";
-        return {
-          session: {
-            botId: botId!,
-            title: String(fallbackTitle || "Live unified meeting"),
-            createdAt: new Date().toISOString(),
-            status: "scheduled",
-          },
-          lines: [],
-          participantCount: 0,
-          startedLabel: "",
-          hasRecallConfig: true,
-          hasGroqConfig: true,
-          _fallbackError: message,
-        } as any;
+        try {
+          return (await loadNotetakerSessionArchive({ data: { botId: botId! } })) as any;
+        } catch {
+          const message = e instanceof Error ? e.message : "Session metadata unavailable";
+          return {
+            session: {
+              botId: botId!,
+              title: String(fallbackTitle || "Live unified meeting"),
+              createdAt: new Date().toISOString(),
+              status: "scheduled",
+            },
+            lines: [],
+            participantCount: 0,
+            startedLabel: "",
+            hasRecallConfig: true,
+            hasGroqConfig: true,
+            _fallbackError: message,
+          } as any;
+        }
       }
     },
-    enabled: Boolean(botId),
+    enabled: Boolean(botId) && !deferLoad,
+    staleTime: 5_000,
     refetchInterval: 10_000,
   });
 
@@ -510,6 +526,7 @@ function SessionPanel({
   const session = q.data?.session;
   const fallbackError = String((q.data as any)?._fallbackError || "");
   const isSessionFallback = Boolean(fallbackError);
+  const showMetadataWarning = isSessionFallback && mergedLines.length === 0;
   const plainNotes = notes ? notesToPlainText(notes) : "";
   const plainTranscript = mergedLines
     .map((L) => {
@@ -619,10 +636,16 @@ function SessionPanel({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to persist meeting"),
   });
 
-  if (!botId) {
-    return <div className="surface-card p-10 text-center text-[13px] text-muted-foreground">Pick a session to view transcript.</div>;
+  if (!botId || deferLoad) {
+    return (
+      <div className="surface-card p-10 text-center text-[13px] text-muted-foreground">
+        {deferLoad ? "Loading sessions…" : "Pick a session to view transcript."}
+      </div>
+    );
   }
-  if (q.isLoading) return <div className="surface-card p-6"><div className="text-sm text-muted-foreground">Loading session…</div></div>;
+  if (q.isLoading && !q.data) {
+    return <div className="surface-card p-6"><div className="text-sm text-muted-foreground">Loading session…</div></div>;
+  }
   const sendChat = async () => {
     const question = chatInput.trim();
     if (!question || chatLoading) return;
@@ -662,9 +685,14 @@ function SessionPanel({
 
   return (
     <div className="surface-card p-4">
-      {isSessionFallback && (
+      {showMetadataWarning && (
         <div className="mb-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-200">
-          Session metadata is not available yet; showing live transcript stream directly from bot events.
+          Session metadata is not available yet. Live transcript will appear here when the bot streams events.
+        </div>
+      )}
+      {isSessionFallback && mergedLines.length > 0 && (
+        <div className="mb-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
+          Loaded from live stream; saving to S3 when the meeting ends.
         </div>
       )}
       <div className="flex items-start justify-between gap-3">
@@ -687,7 +715,7 @@ function SessionPanel({
           </button>
           <button
             onClick={() => persistM.mutate()}
-            disabled={persistM.isPending || isSessionFallback}
+            disabled={persistM.isPending || mergedLines.length === 0}
             className="h-8 px-3 rounded-md bg-foreground text-background text-xs flex items-center gap-1.5 disabled:opacity-50"
             title="Persist transcript + notes to S3"
           >

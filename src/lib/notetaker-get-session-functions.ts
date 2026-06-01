@@ -8,47 +8,11 @@ import type {
 import { getPersistedSession, persistSession } from "@/lib/notetaker-datastore.server";
 import { autoPersistEndedMeetingToS3 } from "@/lib/notetaker-auto-persist.server";
 import { loadPersistedSessionPayloadFromS3 } from "@/lib/notetaker-sessions-history.server";
+import { notetakerUpstream } from "@/lib/notetaker-upstream.server";
 
 const BotIdInput = z.object({ botId: z.string().min(1) });
 
 export type { NotetakerSessionPayload } from "@/lib/alyson-notetaker-functions";
-
-function baseUrl() {
-  const raw =
-    process.env.ALYSON_NOTETAKER_BASE_URL ||
-    process.env.VITE_ALYSON_NOTETAKER_BASE_URL ||
-    process.env.TEST_BOTV2_BASE_URL ||
-    process.env.VITE_TEST_BOTV2_BASE_URL ||
-    "http://localhost:3003";
-  return String(raw).replace(/\/$/, "");
-}
-
-async function upstream(path: string, init?: RequestInit) {
-  const url = `${baseUrl()}${path.startsWith("/") ? "" : "/"}${path}`;
-  const r = await fetch(url, init);
-  const contentType = r.headers.get("content-type") || "";
-  const text = await r.text();
-  let json: unknown = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    // ignore
-  }
-  if (contentType.includes("text/html") || (text && text.trim().startsWith("<!DOCTYPE html"))) {
-    throw new Error(
-      `Notetaker API returned HTML (wrong base URL or server not running). ` +
-        `Check ALYSON_NOTETAKER_BASE_URL (currently: ${baseUrl()}).`,
-    );
-  }
-  if (!r.ok) {
-    const msg =
-      json && typeof json === "object" && "error" in json
-        ? String((json as { error: unknown }).error)
-        : text || `Request failed (${r.status})`;
-    throw new Error(msg);
-  }
-  return json;
-}
 
 function linesFromPlainTranscript(transcriptText: string): NotetakerTranscriptLine[] {
   const baseTime = Date.now();
@@ -114,12 +78,24 @@ function normalizeSessionPayload(res: unknown, botId: string): NotetakerSessionP
   };
 }
 
+/** S3 + local datastore only (when upstream session TTL expired). */
+export const loadNotetakerSessionArchive = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => BotIdInput.parse(data))
+  .handler(async ({ data }): Promise<NotetakerSessionPayload> => {
+    const fallback = await loadSessionFallback(data.botId);
+    if (!fallback) {
+      throw new Error(`No archived transcript found for bot ${data.botId}.`);
+    }
+    fallback.persistedInS3 = true;
+    return fallback;
+  });
+
 /** POST avoids flaky GET input handling in TanStack Start dev. */
 export const getNotetakerSession = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => BotIdInput.parse(data))
   .handler(async ({ data }): Promise<NotetakerSessionPayload> => {
     try {
-      const res = await upstream(`/api/session/${encodeURIComponent(data.botId)}`);
+      const res = await notetakerUpstream(`/api/session/${encodeURIComponent(data.botId)}`);
       const typed = normalizeSessionPayload(res, data.botId);
 
       const needsS3Content =
@@ -142,23 +118,26 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
 
       const st = String(typed.session?.status || "").toLowerCase();
       const ended = ["ended", "completed", "disconnected", "left", "finished"].includes(st);
-      if (ended && typed.session?.botId && typed.lines.length > 0) {
-        const existing = await getPersistedSession(typed.session.botId);
-        if (!existing?.finalizedAt) {
-          let notes: { notes: string; model?: string } | null = null;
-          try {
-            notes = (await upstream(`/api/session/${encodeURIComponent(data.botId)}/notes`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ prompt: "" }),
-            })) as { notes: string; model?: string };
-          } catch {
-            // Notes generation can fail; local persistence should still work.
-          }
-          await persistSession({ session: typed.session, lines: typed.lines ?? [], notes });
-          if (notes?.notes) {
-            typed.notesMd = notes.notes;
-            typed.notesModel = notes.model;
+
+      if (typed.session?.botId && typed.lines.length > 0) {
+        if (ended) {
+          const existing = await getPersistedSession(typed.session.botId);
+          if (!existing?.finalizedAt) {
+            let notes: { notes: string; model?: string } | null = null;
+            try {
+              notes = (await notetakerUpstream(`/api/session/${encodeURIComponent(data.botId)}/notes`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: "" }),
+              })) as { notes: string; model?: string };
+            } catch {
+              // Notes generation can fail; local persistence should still work.
+            }
+            await persistSession({ session: typed.session, lines: typed.lines ?? [], notes });
+            if (notes?.notes) {
+              typed.notesMd = notes.notes;
+              typed.notesModel = notes.model;
+            }
           }
         }
 
@@ -179,6 +158,7 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
             }
           } else if (auto.skipped === "already_in_s3") {
             typed.persistedInS3 = true;
+            typed.session = { ...typed.session, status: typed.session.status || "persisted" };
           }
         } catch {
           // Session view must still load if S3 auto-persist fails

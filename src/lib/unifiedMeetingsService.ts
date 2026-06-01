@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { registerScheduledBotInSessionsCatalog } from "@/lib/notetaker-scheduled-catalog.server";
 
 export type UnifiedBotStatus = "not_required" | "pending" | "scheduled" | "failed";
 export type UnifiedMeetingPlatform = "google_meet" | "unknown";
@@ -280,6 +281,41 @@ async function writeState(state: ScheduledState): Promise<void> {
   const file = stateFilePath();
   await fs.mkdir(path.dirname(file), { recursive: true });
   await fs.writeFile(file, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+}
+
+export type UnifiedScheduledBotSession = {
+  botId: string;
+  title: string;
+  meetingUrl?: string;
+  createdAt: string;
+  status: string;
+  creationSource?: StateEntry["creationSource"];
+};
+
+/**
+ * All bots recorded in unified scheduling state (no time-window filter).
+ * Used so Alyson Notetaker sessions list keeps scheduled meetings after they end.
+ */
+export async function listAllUnifiedScheduledBotSessions(): Promise<UnifiedScheduledBotSession[]> {
+  const state = await readState();
+  const out: UnifiedScheduledBotSession[] = [];
+  const seen = new Set<string>();
+
+  for (const row of state.scheduled) {
+    const botId = String(row.recallBotId || "").trim();
+    if (!botId || seen.has(botId)) continue;
+    seen.add(botId);
+    out.push({
+      botId,
+      title: String(row.title || "Unified meeting"),
+      meetingUrl: row.meetingUrl ? String(row.meetingUrl) : undefined,
+      createdAt: String(row.scheduledAt || row.startTime || new Date().toISOString()),
+      status: "scheduled",
+      creationSource: row.creationSource,
+    });
+  }
+
+  return out.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 function dedupeKey(meetingUrl: string, startTime: string): string {
@@ -583,6 +619,16 @@ async function scheduleMeetingInternal(meeting: UnifiedMeeting): Promise<{ sched
       status: "scheduled",
     });
     await writeState(state);
+
+    const catalogTitle = buildUnifiedTitle(meeting.title, meeting.startTime);
+    await registerScheduledBotInSessionsCatalog({
+      botId: recall.botId,
+      title: catalogTitle,
+      meetingUrl: meeting.meetingUrl,
+      createdAt: nowIso(),
+      status: "scheduled",
+    });
+
     return { scheduled: true };
   } catch (e) {
     return {
