@@ -99,6 +99,7 @@ export function downloadWorkspaceActivityPdf(args: {
 
   const topEmails = topNBy(rows, (r) => r.emailsSent, 8);
   const topMeetings = topNBy(rows, (r) => r.meetingsCreated, 8);
+  const topChat = topNBy(rows, (r) => r.chatMessagesSent, 8);
   const chartY = 166;
   const chartW = (pageW - margin * 2 - 20) / 2;
   drawBarChart({
@@ -124,8 +125,25 @@ export function downloadWorkspaceActivityPdf(args: {
     color: [5, 150, 105],
   });
 
+  // Third chart on next page for chat activity.
+  doc.addPage();
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(13);
+  doc.text("Workspace Activity Charts (continued)", margin, 28);
+  drawBarChart({
+    doc,
+    title: "Top Users by Chat Messages Sent",
+    x: margin,
+    y: 62,
+    w: pageW - margin * 2,
+    h: 210,
+    labels: topChat.map((r) => r.userEmail),
+    values: topChat.map((r) => r.chatMessagesSent),
+    color: [220, 38, 38],
+  });
+
   autoTable(doc, {
-    startY: 356,
+    startY: 292,
     margin: { left: margin, right: margin },
     head: [[
       "User Email",
