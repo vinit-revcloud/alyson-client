@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   LayoutDashboard, Users, DollarSign, TrendingUp, Gift, PieChart, Calendar,
   Clock, FileText, GitBranch, BarChart3, Shield, HelpCircle,
-  Moon, Sun, ChevronsLeft, ChevronsRight, LogOut, Search, Bot, Menu, X, Send, Link2, Activity,
+  Moon, Sun, ChevronsLeft, ChevronsRight, LogOut, Search, Bot, Menu, X, Send, Link2, Activity, Trophy,
   Captions, UserPlus, CalendarDays, Paintbrush,
 } from "lucide-react";
 import { useAuth, ROLE_LABEL, type AppRole } from "@/lib/auth";
@@ -36,6 +36,7 @@ const NEW_BADGE_ROUTES = new Set<string>([
   "/boarding",
   "/handover-documentation",
   "/workspace-activity",
+  "/employee-scoring",
   "/help",
 ]);
 
@@ -54,6 +55,7 @@ const NAV: NavItem[] = [
   { to: "/documents", label: "Documents", icon: FileText, group: "Ops" },
   { to: "/handover-documentation", label: "Handover Docs", icon: Link2, group: "Ops", roles: ["super_admin", "ceo", "hr"] },
   { to: "/workspace-activity", label: "Workspace Activity", icon: Activity, group: "Ops", roles: ["super_admin", "ceo", "hr"] },
+  { to: "/employee-scoring", label: "Employee Scoring", icon: Trophy, group: "Ops", roles: ["super_admin", "ceo", "hr"] },
   { to: "/reports", label: "Reports", icon: BarChart3, group: "Ops", roles: ["super_admin", "ceo", "finance", "hr"] },
   { to: "/alyson-notetaker", label: "Alyson Notetaker", icon: Captions, group: "Ops", roles: ["super_admin"] },
   { to: "/alyson-notetaker/calendar", label: "Meeting Calendar", icon: CalendarDays, group: "Ops", roles: ["super_admin"] },

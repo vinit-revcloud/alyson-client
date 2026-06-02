@@ -20,6 +20,7 @@ import { Route as LeaveRouteImport } from './routes/leave'
 import { Route as HelpRouteImport } from './routes/help'
 import { Route as HandoverDocumentationRouteImport } from './routes/handover-documentation'
 import { Route as EquityRouteImport } from './routes/equity'
+import { Route as EmployeeScoringRouteImport } from './routes/employee-scoring'
 import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as BoardingRouteImport } from './routes/boarding'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -98,6 +99,11 @@ const HandoverDocumentationRoute = HandoverDocumentationRouteImport.update({
 const EquityRoute = EquityRouteImport.update({
   id: '/equity',
   path: '/equity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmployeeScoringRoute = EmployeeScoringRouteImport.update({
+  id: '/employee-scoring',
+  path: '/employee-scoring',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocumentsRoute = DocumentsRouteImport.update({
@@ -238,6 +244,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/boarding': typeof BoardingRoute
   '/documents': typeof DocumentsRoute
+  '/employee-scoring': typeof EmployeeScoringRoute
   '/equity': typeof EquityRoute
   '/handover-documentation': typeof HandoverDocumentationRoute
   '/help': typeof HelpRoute
@@ -273,6 +280,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/boarding': typeof BoardingRoute
   '/documents': typeof DocumentsRoute
+  '/employee-scoring': typeof EmployeeScoringRoute
   '/equity': typeof EquityRoute
   '/handover-documentation': typeof HandoverDocumentationRoute
   '/help': typeof HelpRoute
@@ -311,6 +319,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/boarding': typeof BoardingRoute
   '/documents': typeof DocumentsRoute
+  '/employee-scoring': typeof EmployeeScoringRoute
   '/equity': typeof EquityRoute
   '/handover-documentation': typeof HandoverDocumentationRoute
   '/help': typeof HelpRoute
@@ -350,6 +359,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/boarding'
     | '/documents'
+    | '/employee-scoring'
     | '/equity'
     | '/handover-documentation'
     | '/help'
@@ -385,6 +395,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/boarding'
     | '/documents'
+    | '/employee-scoring'
     | '/equity'
     | '/handover-documentation'
     | '/help'
@@ -422,6 +433,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/boarding'
     | '/documents'
+    | '/employee-scoring'
     | '/equity'
     | '/handover-documentation'
     | '/help'
@@ -460,6 +472,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   BoardingRoute: typeof BoardingRoute
   DocumentsRoute: typeof DocumentsRoute
+  EmployeeScoringRoute: typeof EmployeeScoringRoute
   EquityRoute: typeof EquityRoute
   HandoverDocumentationRoute: typeof HandoverDocumentationRoute
   HelpRoute: typeof HelpRoute
@@ -551,6 +564,13 @@ declare module '@tanstack/react-router' {
       path: '/equity'
       fullPath: '/equity'
       preLoaderRoute: typeof EquityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/employee-scoring': {
+      id: '/employee-scoring'
+      path: '/employee-scoring'
+      fullPath: '/employee-scoring'
+      preLoaderRoute: typeof EmployeeScoringRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/documents': {
@@ -819,6 +839,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   BoardingRoute: BoardingRoute,
   DocumentsRoute: DocumentsRoute,
+  EmployeeScoringRoute: EmployeeScoringRoute,
   EquityRoute: EquityRoute,
   HandoverDocumentationRoute: HandoverDocumentationRoute,
   HelpRoute: HelpRoute,
