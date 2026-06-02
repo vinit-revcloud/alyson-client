@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WorkspaceActivityRouteImport } from './routes/workspace-activity'
 import { Route as WorkflowsRouteImport } from './routes/workflows'
 import { Route as TimeDashboardRouteImport } from './routes/time-dashboard'
 import { Route as TeamRouteImport } from './routes/team'
@@ -44,6 +45,11 @@ import { Route as ApiAnalyticsUnifiedMeetingsScheduleBotsRouteImport } from './r
 import { Route as ApiAnalyticsUnifiedMeetingsRefreshRouteImport } from './routes/api/analytics/unified-meetings.refresh'
 import { Route as ApiAnalyticsUnifiedMeetingsMeetingIdScheduleRouteImport } from './routes/api/analytics/unified-meetings.$meetingId.schedule'
 
+const WorkspaceActivityRoute = WorkspaceActivityRouteImport.update({
+  id: '/workspace-activity',
+  path: '/workspace-activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WorkflowsRoute = WorkflowsRouteImport.update({
   id: '/workflows',
   path: '/workflows',
@@ -242,6 +248,7 @@ export interface FileRoutesByFullPath {
   '/team': typeof TeamRoute
   '/time-dashboard': typeof TimeDashboardRouteWithChildren
   '/workflows': typeof WorkflowsRoute
+  '/workspace-activity': typeof WorkspaceActivityRoute
   '/alyson-notetaker/analytics': typeof AlysonNotetakerAnalyticsRouteWithChildren
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/alyson-notetaker/unified-meetings': typeof AlysonNotetakerUnifiedMeetingsRoute
@@ -276,6 +283,7 @@ export interface FileRoutesByTo {
   '/team': typeof TeamRoute
   '/time-dashboard': typeof TimeDashboardRouteWithChildren
   '/workflows': typeof WorkflowsRoute
+  '/workspace-activity': typeof WorkspaceActivityRoute
   '/alyson-notetaker/analytics': typeof AlysonNotetakerAnalyticsRouteWithChildren
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/alyson-notetaker/unified-meetings': typeof AlysonNotetakerUnifiedMeetingsRoute
@@ -313,6 +321,7 @@ export interface FileRoutesById {
   '/team': typeof TeamRoute
   '/time-dashboard': typeof TimeDashboardRouteWithChildren
   '/workflows': typeof WorkflowsRoute
+  '/workspace-activity': typeof WorkspaceActivityRoute
   '/alyson-notetaker/analytics': typeof AlysonNotetakerAnalyticsRouteWithChildren
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/alyson-notetaker/unified-meetings': typeof AlysonNotetakerUnifiedMeetingsRoute
@@ -351,6 +360,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/time-dashboard'
     | '/workflows'
+    | '/workspace-activity'
     | '/alyson-notetaker/analytics'
     | '/alyson-notetaker/calendar'
     | '/alyson-notetaker/unified-meetings'
@@ -385,6 +395,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/time-dashboard'
     | '/workflows'
+    | '/workspace-activity'
     | '/alyson-notetaker/analytics'
     | '/alyson-notetaker/calendar'
     | '/alyson-notetaker/unified-meetings'
@@ -421,6 +432,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/time-dashboard'
     | '/workflows'
+    | '/workspace-activity'
     | '/alyson-notetaker/analytics'
     | '/alyson-notetaker/calendar'
     | '/alyson-notetaker/unified-meetings'
@@ -458,11 +470,19 @@ export interface RootRouteChildren {
   TeamRoute: typeof TeamRoute
   TimeDashboardRoute: typeof TimeDashboardRouteWithChildren
   WorkflowsRoute: typeof WorkflowsRoute
+  WorkspaceActivityRoute: typeof WorkspaceActivityRoute
   ApiAnalyticsUnifiedMeetingsRoute: typeof ApiAnalyticsUnifiedMeetingsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/workspace-activity': {
+      id: '/workspace-activity'
+      path: '/workspace-activity'
+      fullPath: '/workspace-activity'
+      preLoaderRoute: typeof WorkspaceActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/workflows': {
       id: '/workflows'
       path: '/workflows'
@@ -809,6 +829,7 @@ const rootRouteChildren: RootRouteChildren = {
   TeamRoute: TeamRoute,
   TimeDashboardRoute: TimeDashboardRouteWithChildren,
   WorkflowsRoute: WorkflowsRoute,
+  WorkspaceActivityRoute: WorkspaceActivityRoute,
   ApiAnalyticsUnifiedMeetingsRoute:
     ApiAnalyticsUnifiedMeetingsRouteWithChildren,
 }

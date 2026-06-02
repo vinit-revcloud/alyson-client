@@ -10,6 +10,8 @@ import {
   Captions,
   CalendarDays,
   Clock,
+  Link2,
+  Activity,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -87,6 +89,56 @@ const TOPICS = [
     ],
   },
   {
+    icon: Link2,
+    title: "Handover documentation",
+    desc: "Simple employee-to-document link registry for handovers, stored in S3.",
+    faq: [
+      {
+        q: "What is Handover Documentation used for?",
+        a: "It is a lightweight table for operational handovers: one employee name and one documentation link per row. Use it for runbooks, ownership docs, KT notes, and transition links.",
+      },
+      {
+        q: "Where is the data stored?",
+        a: "Entries are stored in S3 under the org chart bucket (`alyson-hr-orgchart`) at `alyson-hr-handoverdocumetnation/index.json`.",
+      },
+      {
+        q: "Can I export the handover list?",
+        a: "Yes. Use Export CSV on the Handover Documentation page to download the current list for sharing or offline review.",
+      },
+      {
+        q: "Is delete protected?",
+        a: "Yes. Deleting a row requires confirmation by typing `DELETE` in the confirmation dialog.",
+      },
+    ],
+  },
+  {
+    icon: Activity,
+    title: "Workspace activity",
+    desc: "Google Workspace activity metrics per user (emails, meetings, docs, chat) with custom time windows.",
+    faq: [
+      {
+        q: "What does Workspace Activity measure?",
+        a: "Per user it shows outbound emails sent, meetings in selected window, Google Docs created, and Chat messages sent.",
+      },
+      {
+        q: "How do I use custom date/time filters?",
+        a: "Set Start and End datetime, then click Apply window. The table and charts refresh for that exact window.",
+      },
+      {
+        q: "Can I search a specific user quickly?",
+        a: "Yes. Use the search box on the module page to filter by user email and focus on one person’s metrics instantly.",
+      },
+      {
+        q: "Can I export reports?",
+        a: "Yes. Export CSV for raw data and Export PDF for KPI summary, charts, and full table.",
+      },
+      {
+        q: "Why can newly created docs/events take time to appear?",
+        a: "Google Admin audit feeds are near-real-time but not always immediate. Short ingestion delay is normal; refresh after a few minutes if needed.",
+      },
+    ],
+  },
+  {
     icon: Clock,
     title: "Time dashboard",
     desc: "Super-admin view of employee working time, app and site usage, and range-based summaries.",
@@ -159,12 +211,14 @@ function HelpPage() {
     faq: t.faq.filter((f) => !q || f.q.toLowerCase().includes(q.toLowerCase()) || f.a.toLowerCase().includes(q.toLowerCase())),
   })).filter((t) => !q || t.faq.length || t.title.toLowerCase().includes(q.toLowerCase()) || t.desc.toLowerCase().includes(q.toLowerCase()));
 
+  const activeTopic = filtered.find((t) => t.title === open) ?? null;
+
   return (
     <div>
       <PageHeader
         eyebrow="Resources"
         title="Help & docs"
-        description="Everything you need to operate confidently — onboarding, Notetaker, calendar, time tracking, payroll, equity, and support."
+        description="Everything you need to operate confidently — onboarding, Notetaker, calendar, handover docs, workspace activity, time tracking, payroll, equity, and support."
       />
       <div className="px-5 md:px-8 py-4 md:py-5 space-y-4 max-w-5xl mx-auto">
         <div className="relative max-w-xl">
@@ -177,36 +231,25 @@ function HelpPage() {
           />
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-start">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-stretch">
           {filtered.map((t) => {
             const isOpen = open === t.title;
             return (
-              <div key={t.title} className="surface-card overflow-hidden flex flex-col min-w-0 rounded-lg">
+              <div key={t.title} className="surface-card overflow-hidden flex flex-col min-w-0 rounded-lg h-full">
                 <button
                   type="button"
                   onClick={() => setOpen(isOpen ? null : t.title)}
-                  className="w-full p-3.5 flex items-start gap-2.5 text-left hover:bg-muted/30 shrink-0"
+                  className="w-full p-3.5 flex items-start gap-2.5 text-left hover:bg-muted/30 shrink-0 min-h-[108px]"
                 >
                   <div className="h-8 w-8 rounded-md bg-accent text-accent-foreground grid place-items-center shrink-0">
                     <t.icon className="h-3.5 w-3.5" />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-[13px] leading-tight">{t.title}</div>
-                    <div className="text-[11px] text-muted-foreground mt-1 leading-snug">{t.desc}</div>
+                    <div className="text-[11px] text-muted-foreground mt-1 leading-snug line-clamp-3">{t.desc}</div>
                   </div>
                   <ChevronDown className={"h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0 mt-0.5 " + (isOpen ? "rotate-180" : "")} />
                 </button>
-                {isOpen && (
-                  <div className="border-t border-border divide-y divide-border bg-muted/10">
-                    {t.faq.map((f, i) => (
-                      <div key={i} className="px-3 py-2.5">
-                        <div className="font-medium text-[12px] leading-snug">{f.q}</div>
-                        <div className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{f.a}</div>
-                      </div>
-                    ))}
-                    {t.faq.length === 0 && <div className="px-3 py-2.5 text-[11px] text-muted-foreground italic">No FAQs match your search.</div>}
-                  </div>
-                )}
               </div>
             );
           })}
@@ -218,6 +261,26 @@ function HelpPage() {
             </div>
           )}
         </div>
+
+        {activeTopic && (
+          <div className="surface-card overflow-hidden rounded-lg">
+            <div className="p-3.5 border-b border-border bg-muted/20">
+              <div className="font-medium text-[13px]">{activeTopic.title}</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">{activeTopic.desc}</div>
+            </div>
+            <div className="divide-y divide-border">
+              {activeTopic.faq.map((f, i) => (
+                <div key={i} className="px-3 py-2.5">
+                  <div className="font-medium text-[12px] leading-snug">{f.q}</div>
+                  <div className="text-[11px] text-muted-foreground mt-1 leading-relaxed">{f.a}</div>
+                </div>
+              ))}
+              {activeTopic.faq.length === 0 && (
+                <div className="px-3 py-2.5 text-[11px] text-muted-foreground italic">No FAQs match your search.</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   LayoutDashboard, Users, DollarSign, TrendingUp, Gift, PieChart, Calendar,
   Clock, FileText, GitBranch, BarChart3, Shield, HelpCircle,
-  Moon, Sun, ChevronsLeft, ChevronsRight, LogOut, Search, Bot, Menu, X, Send, Link2,
+  Moon, Sun, ChevronsLeft, ChevronsRight, LogOut, Search, Bot, Menu, X, Send, Link2, Activity,
   Captions, UserPlus, CalendarDays, Paintbrush,
 } from "lucide-react";
 import { useAuth, ROLE_LABEL, type AppRole } from "@/lib/auth";
@@ -35,6 +35,7 @@ const NEW_BADGE_ROUTES = new Set<string>([
   "/alyson-notetaker/unified-meetings",
   "/boarding",
   "/handover-documentation",
+  "/workspace-activity",
   "/help",
 ]);
 
@@ -52,6 +53,7 @@ const NAV: NavItem[] = [
   { to: "/workflows", label: "Workflows", icon: GitBranch, group: "Ops" },
   { to: "/documents", label: "Documents", icon: FileText, group: "Ops" },
   { to: "/handover-documentation", label: "Handover Docs", icon: Link2, group: "Ops", roles: ["super_admin", "ceo", "hr"] },
+  { to: "/workspace-activity", label: "Workspace Activity", icon: Activity, group: "Ops", roles: ["super_admin", "ceo", "hr"] },
   { to: "/reports", label: "Reports", icon: BarChart3, group: "Ops", roles: ["super_admin", "ceo", "finance", "hr"] },
   { to: "/alyson-notetaker", label: "Alyson Notetaker", icon: Captions, group: "Ops", roles: ["super_admin"] },
   { to: "/alyson-notetaker/calendar", label: "Meeting Calendar", icon: CalendarDays, group: "Ops", roles: ["super_admin"] },
@@ -229,7 +231,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                           <span className="truncate flex items-center gap-2 min-w-0">
                             <span className="truncate">{item.label}</span>
                             {NEW_BADGE_ROUTES.has(item.to) && (
-                              <span className="shrink-0 rounded-full border border-blue-600/30 bg-blue-600/10 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-400">
+                              <span className="shrink-0 rounded-full border border-amber-500/40 bg-amber-500/15 px-1 py-px text-[9px] leading-none font-medium text-amber-700 dark:text-amber-300">
                                 New
                               </span>
                             )}
