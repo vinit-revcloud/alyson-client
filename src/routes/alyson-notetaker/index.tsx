@@ -501,6 +501,8 @@ function SessionPanel({
   const [notesModel, setNotesModel] = useState<string>("");
   const [copied, setCopied] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
+  // Keep header clock real-time in IST.
+  const [nowIso, setNowIso] = useState(() => new Date().toISOString());
   type ChatMsg = { role: "user" | "assistant"; content: string };
   const [chatMsgs, setChatMsgs] = useState<ChatMsg[]>([
     { role: "assistant", content: "Ask me questions about this meeting only. I will answer using the transcript + notes." },
@@ -586,6 +588,11 @@ function SessionPanel({
     };
     return () => es.close();
   }, [botId, base]);
+
+  useEffect(() => {
+    const t = window.setInterval(() => setNowIso(new Date().toISOString()), 1000);
+    return () => window.clearInterval(t);
+  }, []);
 
   useEffect(() => {
     if (!q.data?.notesMd?.trim()) return;
@@ -730,7 +737,7 @@ function SessionPanel({
             <span>Live transcript</span>
             <span className="normal-case tracking-normal text-[11px] flex items-center gap-2">
               <span className="text-muted-foreground/90" title="Indian Standard Time">
-                IST {istDateTimeFromIso(new Date().toISOString())}
+                IST {istDateTimeFromIso(nowIso)}
               </span>
               <button
                 type="button"
@@ -764,7 +771,7 @@ function SessionPanel({
                       </div>
                       <div className="truncate">{L.participant?.name || "Speaker"}</div>
                       <div className="ml-auto" title={istDateTimeFromIso(L.received_at)}>
-                        {L.clock || istClockFromIso(L.received_at)}
+                        {istClockFromIso(L.received_at)}
                       </div>
                     </div>
                     <div className="mt-1 text-[13px] leading-relaxed whitespace-pre-wrap">{(L.text || "").trim()}</div>
