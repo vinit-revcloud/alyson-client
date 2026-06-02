@@ -73,7 +73,15 @@ function EmployeeScoringPage() {
   );
   const [search, setSearch] = useState(() => boot?.search ?? "");
 
-  const cachedSnapshot = useMemo(() => readEmployeeScoringSnapshot(applied), [applied]);
+  const persisted = useMemo(() => {
+    const snapshot = readEmployeeScoringSnapshot(applied);
+    if (!snapshot || !applied) return null;
+    const stored = loadEmployeeScoringSession();
+    return {
+      snapshot,
+      at: stored?.snapshotAt ?? boot?.snapshotAt ?? Date.now(),
+    };
+  }, [applied, boot?.snapshotAt]);
 
   const q = useQuery({
     queryKey: ["employee-scoring", applied?.start ?? "idle", applied?.end ?? "idle"],
@@ -82,8 +90,8 @@ function EmployeeScoringPage() {
         data: applied ? { start: applied.start, end: applied.end } : undefined,
       }),
     enabled: applied !== null,
-    initialData: () => readEmployeeScoringSnapshot(applied),
-    initialDataUpdatedAt: boot?.snapshotAt,
+    initialData: persisted?.snapshot,
+    initialDataUpdatedAt: persisted?.at,
     placeholderData: keepPreviousData,
     staleTime: 120_000,
     gcTime: 24 * 60 * 60 * 1000,
@@ -307,7 +315,7 @@ function EmployeeScoringPage() {
             {q.data.timeDoctorRange.start} → {q.data.timeDoctorRange.end} ({q.data.windowDays} days) · Ranked:{" "}
             {q.data.rows.length}
             {search.trim() ? ` · Showing: ${filteredRows.length}` : ""}
-            {q.isFetching ? " · Refreshing…" : cachedSnapshot && !q.isFetching ? " · Restored from session" : ""}
+            {q.isFetching ? " · Refreshing…" : persisted && !q.isFetching ? " · Restored from session" : ""}
           </div>
         )}
 

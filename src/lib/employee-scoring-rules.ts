@@ -4,11 +4,11 @@
  */
 
 export const SCORING_WEIGHTS = {
-  workHours: 0.4,
-  meetings: 0.25,
-  emails: 0.15,
-  chat: 0.12,
-  docs: 0.08,
+  workHours: 0.6,
+  meetings: 0.167,
+  emails: 0.1,
+  chat: 0.08,
+  docs: 0.053,
 } as const;
 
 export type ScoringWeights = typeof SCORING_WEIGHTS;
