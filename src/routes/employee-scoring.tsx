@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { EmptyState, PageHeader, TableScroll } from "@/components/AppShell";
 import { TableSkeleton } from "@/components/Skeleton";
 import { downloadCSV } from "@/lib/csv";
+import { getEmployeeHourlyActivity } from "@/lib/employee-scoring-hourly-functions";
 import { getEmployeeScoring } from "@/lib/employee-scoring-functions";
 import { downloadEmployeeScoringPdf } from "@/lib/employee-scoring-pdf";
 import {
@@ -90,6 +91,9 @@ function EmployeeScoringPage() {
     () => boot?.applied ?? { start: fallbackStart, end: fallbackEnd },
   );
   const [search, setSearch] = useState(() => boot?.search ?? "");
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string | null>(
+    () => boot?.selectedUserEmail ?? null,
+  );
 
   const persisted = useMemo(() => {
     const snapshot = readEmployeeScoringSnapshot(applied);
@@ -128,6 +132,28 @@ function EmployeeScoringPage() {
   const isBusy = q.isFetching;
   const showingStaleWindow = q.isPlaceholderData && isBusy;
   const coldLoad = q.isPending && !q.data;
+
+  const hourlyQ = useQuery({
+    queryKey: [
+      "employee-hourly",
+      selectedUserEmail ?? "none",
+      applied?.start ?? "idle",
+      applied?.end ?? "idle",
+    ],
+    queryFn: () =>
+      getEmployeeHourlyActivity({
+        data: {
+          userEmail: selectedUserEmail!,
+          start: applied!.start,
+          end: applied!.end,
+        },
+      }),
+    enabled: Boolean(selectedUserEmail && applied && !showingStaleWindow),
+    placeholderData: keepPreviousData,
+    staleTime: 120_000,
+    gcTime: 24 * 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   const filteredRows = useMemo(() => {
     const rows = q.data?.rows ?? [];
@@ -237,6 +263,44 @@ function EmployeeScoringPage() {
     toast.success("Employee scoring PDF exported");
   };
 
+  const exportHourlyCsv = () => {
+    const rows = hourlyQ.data?.rows ?? [];
+    if (!rows.length) return toast.error("No hourly rows to export");
+    const suffix = hourlyQ.data?.userEmail?.split("@")[0] ?? "user";
+    downloadCSV(
+      `employee-hourly-${suffix}-${applied?.start?.slice(0, 10) ?? "range"}.csv`,
+      rows.map((r) => ({
+        day: r.day,
+        hour: r.hour,
+        time_doctor_minutes: r.timeDoctorMinutes,
+        active_minutes: r.activeMinutes,
+        inactive_minutes: r.inactiveMinutes,
+        meetings_attended: r.meetingsAttended,
+        chat_messages: r.chatMessages,
+        emails: r.emails,
+        docs_created: r.docsCreated,
+        words_typed_or_spoken: r.wordsTypedOrSpoken,
+        working: r.working,
+        hours_credit: r.hoursCredit,
+      })),
+      [
+        "day",
+        "hour",
+        "time_doctor_minutes",
+        "active_minutes",
+        "inactive_minutes",
+        "meetings_attended",
+        "chat_messages",
+        "emails",
+        "docs_created",
+        "words_typed_or_spoken",
+        "working",
+        "hours_credit",
+      ],
+    );
+    toast.success("Hourly activity exported");
+  };
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!q.isSuccess || q.isPlaceholderData || !q.data || !applied) {
@@ -246,6 +310,7 @@ function EmployeeScoringPage() {
         draftEnd,
         applied,
         search,
+        selectedUserEmail,
       };
       saveEmployeeScoringSession(filtersOnly);
       return;
@@ -256,11 +321,12 @@ function EmployeeScoringPage() {
       draftEnd,
       applied,
       search,
+      selectedUserEmail,
       snapshot: q.data,
       snapshotKey: scoringSnapshotKey(applied),
       snapshotAt: Date.now(),
     });
-  }, [draftStart, draftEnd, applied, search, q.data, q.isSuccess, q.isPlaceholderData]);
+  }, [draftStart, draftEnd, applied, search, selectedUserEmail, q.data, q.isSuccess, q.isPlaceholderData]);
 
   const weightPct = (k: keyof typeof SCORING_WEIGHTS) => Math.round(SCORING_WEIGHTS[k] * 100);
 
@@ -528,8 +594,17 @@ function EmployeeScoringPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredRows.map((r) => (
-                      <tr key={r.userEmail}>
+                    {filteredRows.map((r) => {
+                      const selected = selectedUserEmail === r.userEmail;
+                      return (
+                      <tr
+                        key={r.userEmail}
+                        onClick={() => setSelectedUserEmail(r.userEmail)}
+                        className={
+                          "cursor-pointer transition-colors " +
+                          (selected ? "bg-muted/70 ring-1 ring-inset ring-border" : "hover:bg-muted/40")
+                        }
+                      >
                         <td className="font-mono text-muted-foreground">#{r.rank}</td>
                         <td>
                           <div className="font-medium text-[13px]">{r.displayName}</div>
@@ -568,11 +643,132 @@ function EmployeeScoringPage() {
                           {r.percentile.chat}/{r.percentile.docs}
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </TableScroll>
+              <p className="text-[11px] text-muted-foreground mt-2">
+                Click an employee row to load the hourly breakdown below (IST hours).
+              </p>
             </div>
+          </div>
+        ) : null}
+
+        {selectedUserEmail && applied && !showingStaleWindow ? (
+          <div className="space-y-3 pt-2 border-t border-border">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground font-medium">
+                  Hourly activity
+                </div>
+                <h3 className="font-display text-lg mt-0.5">
+                  {hourlyQ.data?.displayName ?? selectedUserEmail}
+                </h3>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Time Doctor minutes, Workspace events, and calendar meetings per IST hour. Words are estimated from
+                  activity volume.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={exportHourlyCsv}
+                disabled={!hourlyQ.data?.rows?.length || hourlyQ.isFetching}
+                className="h-8 px-3 rounded-md border border-border text-xs inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
+              >
+                <Download className="h-3.5 w-3.5" />
+                Export hourly CSV
+              </button>
+            </div>
+
+            {hourlyQ.isFetching && !hourlyQ.data?.rows?.length ? (
+              <TableSkeleton rows={8} />
+            ) : null}
+
+            {hourlyQ.isError ? (
+              <div className="surface-card p-4 text-sm text-destructive">
+                {hourlyQ.error instanceof Error ? hourlyQ.error.message : "Failed to load hourly activity"}
+              </div>
+            ) : null}
+
+            {hourlyQ.data?.warnings?.length ? (
+              <ul className="text-[11px] text-muted-foreground space-y-1">
+                {hourlyQ.data.warnings.map((w, i) => (
+                  <li key={i}>{w}</li>
+                ))}
+              </ul>
+            ) : null}
+
+            {hourlyQ.data && !hourlyQ.isFetching && hourlyQ.data.rows.length === 0 ? (
+              <EmptyState
+                icon={Trophy}
+                title="No hourly activity"
+                description="No Time Doctor or Workspace events in this window for this user."
+              />
+            ) : null}
+
+            {!!hourlyQ.data?.rows?.length ? (
+              <div className={hourlyQ.isFetching ? "opacity-70 pointer-events-none" : ""}>
+                <TableScroll>
+                  <table className="ops-table w-full text-[12px]">
+                    <thead>
+                      <tr>
+                        <th align="left">Day</th>
+                        <th align="right">Hour</th>
+                        <th align="right">Time Doctor Minutes</th>
+                        <th align="right">Active Minutes</th>
+                        <th align="right">Inactive Minutes</th>
+                        <th align="right">Meeting Attended</th>
+                        <th align="right">Chat Messages</th>
+                        <th align="right">Emails</th>
+                        <th align="right">Docs Created</th>
+                        <th align="right">Words Typed or Spoken</th>
+                        <th align="center">Working</th>
+                        <th align="right">Hours Credit</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hourlyQ.data.rows.map((r, i) => (
+                        <tr key={`${r.day}-${r.hour}-${i}`}>
+                          <td>{r.day}</td>
+                          <td align="right" className="font-mono">
+                            {r.hour}
+                          </td>
+                          <td align="right" className="font-mono">
+                            {r.timeDoctorMinutes}
+                          </td>
+                          <td align="right" className="font-mono">
+                            {r.activeMinutes}
+                          </td>
+                          <td align="right" className="font-mono">
+                            {r.inactiveMinutes}
+                          </td>
+                          <td align="right" className="font-mono">
+                            {r.meetingsAttended}
+                          </td>
+                          <td align="right" className="font-mono">
+                            {r.chatMessages}
+                          </td>
+                          <td align="right" className="font-mono">
+                            {r.emails}
+                          </td>
+                          <td align="right" className="font-mono">
+                            {r.docsCreated}
+                          </td>
+                          <td align="right" className="font-mono">
+                            {r.wordsTypedOrSpoken}
+                          </td>
+                          <td align="center">{r.working}</td>
+                          <td align="right" className="font-mono">
+                            {r.hoursCredit}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </TableScroll>
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

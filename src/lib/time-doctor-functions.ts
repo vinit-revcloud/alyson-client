@@ -428,6 +428,25 @@ export const fetchTimeDoctorDashboard = createServerFn({ method: "GET" })
     return await buildDashboard(range);
   });
 
+const UserWorkSegmentsInput = z.object({
+  userId: z.string().min(1),
+  start: DateSchema,
+  end: DateSchema,
+});
+
+/** Raw work / poor-time segments for hourly bucketing (one user, date range). */
+export const fetchUserWorkSegments = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => UserWorkSegmentsInput.parse(data))
+  .handler(async ({ data }) => {
+    const company = await getCompany({ auth: "access_only" });
+    const range = { start: data.start, end: data.end };
+    const [work, poor] = await Promise.all([
+      listCompanyWorklogs(company.id, range, data.userId, { auth: "access_only" }),
+      listCompanyPoorTime(company.id, range, data.userId, { auth: "access_only" }),
+    ]);
+    return { work, poor };
+  });
+
 function getRange(input: { start?: string; end?: string }): DashboardRange & { clipped?: boolean } {
   const defaults = defaultDetailRange();
   const end = input.end ?? defaults.end;
