@@ -4,7 +4,7 @@ import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { promises as fs } from "node:fs";
 import { z } from "zod";
-import { fetchTimeDoctorEmployeesTable, fetchUserWorklogEntriesForRange } from "@/lib/time-doctor-functions";
+import { fetchUserWorklogEntriesForRange, listTimeDoctorUsersLight } from "@/lib/time-doctor-functions";
 
 const SCOPES = [
   "https://www.googleapis.com/auth/admin.directory.user.readonly",
@@ -13,6 +13,8 @@ const SCOPES = [
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.events.readonly";
 const IST = "Asia/Kolkata";
 const MAX_RANGE_MS = 7 * 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 90_000;
+const hourlyCache = new Map<string, { at: number; data: HourlyActivityResponse }>();
 
 const Input = z.object({
   start: z.string().datetime(),
@@ -236,6 +238,12 @@ export const getHourlyActivityReport = createServerFn({ method: "GET" })
       throw new Error("Hourly report supports up to 7 days per request.");
     }
 
+    const cacheKey = `${data.start}|${data.end}|${data.userEmail}`;
+    const cached = hourlyCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+      return { ...cached.data, warnings: [...cached.data.warnings, "served_from_cache"] };
+    }
+
     const startTime = isoZ(new Date(data.start));
     const endTime = isoZ(new Date(data.end));
     const userEmail = data.userEmail.trim().toLowerCase();
@@ -244,14 +252,12 @@ export const getHourlyActivityReport = createServerFn({ method: "GET" })
     const tdStart = format(new Date(data.start), "yyyy-MM-dd");
     const tdEnd = format(new Date(data.end), "yyyy-MM-dd");
 
-    const tdTable = await fetchTimeDoctorEmployeesTable({ data: { start: tdStart, end: tdEnd } }).catch(
-      (e) => {
-        warnings.push(`time_doctor: ${e instanceof Error ? e.message : String(e)}`);
-        return null;
-      },
-    );
+    const tdUsers = await listTimeDoctorUsersLight().catch((e) => {
+      warnings.push(`time_doctor: ${e instanceof Error ? e.message : String(e)}`);
+      return [] as Awaited<ReturnType<typeof listTimeDoctorUsersLight>>;
+    });
 
-    const tdUser = tdTable?.employees?.find((e) => e.email.trim().toLowerCase() === userEmail);
+    const tdUser = tdUsers.find((e) => e.email === userEmail);
     const displayName = tdUser?.name?.trim() || userEmail.split("@")[0] || userEmail;
 
     const activeSecondsByHour = new Map<BucketKey, number>();
@@ -369,7 +375,7 @@ export const getHourlyActivityReport = createServerFn({ method: "GET" })
         };
       });
 
-    return {
+    const result: HourlyActivityResponse = {
       range: { start: startTime, end: endTime },
       userEmail,
       displayName,
@@ -377,4 +383,6 @@ export const getHourlyActivityReport = createServerFn({ method: "GET" })
       rows,
       warnings,
     };
+    hourlyCache.set(cacheKey, { at: Date.now(), data: result });
+    return result;
   });

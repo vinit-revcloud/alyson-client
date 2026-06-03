@@ -1299,6 +1299,21 @@ async function seedUsersFromWorklogs(companyId: string): Promise<Array<{ id: str
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/** Lightweight user list for pickers / hourly reports (no worklog aggregation). */
+export async function listTimeDoctorUsersLight(): Promise<
+  Array<{ id: string; name: string; email: string }>
+> {
+  const company = await getCompany({ auth: "access_only" });
+  const users = await listUsers(company.id, { auth: "access_only" });
+  return users
+    .map((u) => ({
+      id: u.id,
+      name: (u.name || u.email || "").trim(),
+      email: (u.email || "").trim().toLowerCase(),
+    }))
+    .filter((u) => u.email);
+}
+
 const WorklogEntriesInput = z.object({
   userId: z.string().min(1),
   start: DateSchema,

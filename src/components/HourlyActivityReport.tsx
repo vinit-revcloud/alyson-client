@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Download, Loader2, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
+import { EmployeeEmailPicker, resolveEmployeeFromQuery } from "@/components/EmployeeEmailPicker";
 import { EmptyState, TableScroll } from "@/components/AppShell";
-import { TableSkeleton } from "@/components/Skeleton";
 import { downloadCSV } from "@/lib/csv";
+import { getEmployeePickerDirectory } from "@/lib/employee-picker-functions";
 import { getHourlyActivityReport } from "@/lib/hourly-activity-functions";
 import {
   hourlySnapshotKey,
@@ -64,7 +65,7 @@ export type HourlyActivityReportProps = {
 export function HourlyActivityReport({
   compact,
   syncRange,
-  selectedEmail,
+  selectedEmail: selectedEmailFromParent,
   employeeOptions,
 }: HourlyActivityReportProps) {
   const now = useMemo(() => new Date(), []);
@@ -74,8 +75,25 @@ export function HourlyActivityReport({
   const [draftStart, setDraftStart] = useState(
     () => boot?.draftStart ?? isoForInput(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
   );
+  const bootApplied = boot?.applied ?? null;
+  const bootHasSnapshot = Boolean(bootApplied && readHourlyActivitySnapshot(bootApplied));
+
   const [search, setSearch] = useState(() => boot?.search ?? "");
-  const [applied, setApplied] = useState<HourlyActivityStoredState["applied"]>(() => boot?.applied ?? null);
+  const [selectedEmail, setSelectedEmail] = useState<string | null>(() =>
+    bootHasSnapshot ? bootApplied!.userEmail : null,
+  );
+  const [applied, setApplied] = useState<HourlyActivityStoredState["applied"]>(() =>
+    bootHasSnapshot ? bootApplied : null,
+  );
+
+  const directoryQ = useQuery({
+    queryKey: ["employee-picker-directory"],
+    queryFn: () => getEmployeePickerDirectory(),
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+  });
+
+  const roster = useMemo(() => directoryQ.data?.employees ?? [], [directoryQ.data?.employees]);
 
   useEffect(() => {
     if (syncRange?.start && syncRange?.end) {
@@ -85,8 +103,12 @@ export function HourlyActivityReport({
   }, [syncRange?.start, syncRange?.end]);
 
   useEffect(() => {
-    if (selectedEmail?.trim()) setSearch(selectedEmail.trim());
-  }, [selectedEmail]);
+    if (!selectedEmailFromParent?.trim()) return;
+    const email = selectedEmailFromParent.trim().toLowerCase();
+    setSelectedEmail(email);
+    const match = roster.find((e) => e.email === email);
+    if (match) setSearch(match.name);
+  }, [selectedEmailFromParent, roster]);
 
   const persisted = useMemo(() => {
     const snapshot = readHourlyActivitySnapshot(applied);
@@ -114,15 +136,23 @@ export function HourlyActivityReport({
     refetchOnWindowFocus: false,
   });
 
+  const resolvedEmployee = useMemo(
+    () =>
+      selectedEmail
+        ? roster.find((e) => e.email === selectedEmail) ?? { email: selectedEmail, name: selectedEmail }
+        : resolveEmployeeFromQuery(search, roster, employeeOptions),
+    [selectedEmail, search, roster, employeeOptions],
+  );
+
   const draftRange = useMemo(() => {
-    const email = search.trim().toLowerCase();
-    if (!looksLikeEmail(email) || !draftStart || !draftEnd) return null;
+    const email = resolvedEmployee?.email;
+    if (!email || !draftStart || !draftEnd) return null;
     try {
       return draftToApplied(draftStart, draftEnd, email);
     } catch {
       return null;
     }
-  }, [search, draftStart, draftEnd]);
+  }, [resolvedEmployee?.email, draftStart, draftEnd]);
 
   const draftMatchesApplied = rangesMatch(draftRange, applied);
   const isBusy = q.isFetching;
@@ -153,11 +183,14 @@ export function HourlyActivityReport({
   }, [q.isSuccess, q.isPlaceholderData, q.data, applied]);
 
   const apply = () => {
-    const email = search.trim().toLowerCase();
-    if (!looksLikeEmail(email)) {
-      toast.error("Enter a full employee email (e.g. name@company.com)");
+    const resolved = resolvedEmployee ?? resolveEmployeeFromQuery(search, roster, employeeOptions);
+    if (!resolved?.email) {
+      toast.error("Pick an employee from the suggestions (type a name, then click a match)");
       return;
     }
+    setSelectedEmail(resolved.email);
+    setSearch(resolved.name);
+    const email = resolved.email;
     if (!draftStart || !draftEnd) return toast.error("Select start and end datetime");
     const s = new Date(draftStart);
     const e = new Date(draftEnd);
@@ -178,11 +211,13 @@ export function HourlyActivityReport({
   };
 
   const applyPresetHours = (hours: (typeof PRESET_HOURS)[number]) => {
-    const email = search.trim().toLowerCase();
-    if (!looksLikeEmail(email)) {
-      toast.error("Enter employee email in search first");
+    const resolved = resolvedEmployee ?? resolveEmployeeFromQuery(search, roster, employeeOptions);
+    if (!resolved?.email) {
+      toast.error("Pick an employee from the suggestions first");
       return;
     }
+    const email = resolved.email;
+    setSelectedEmail(email);
     const end = new Date();
     const start = new Date(end.getTime() - hours * 60 * 60 * 1000);
     setDraftStart(isoForInput(start));
@@ -255,21 +290,21 @@ export function HourlyActivityReport({
   }, [draftStart, draftEnd, search, applied, q.data, q.isSuccess, q.isPlaceholderData]);
 
   useEffect(() => {
-    if (!compact || !selectedEmail?.trim() || !syncRange?.start || !syncRange?.end) return;
-    const email = selectedEmail.trim().toLowerCase();
-    if (!looksLikeEmail(email)) return;
+    if (!compact || !selectedEmailFromParent?.trim() || !syncRange?.start || !syncRange?.end) return;
+    const email = selectedEmailFromParent.trim().toLowerCase();
     const span = new Date(syncRange.end).getTime() - new Date(syncRange.start).getTime();
     if (span > MAX_RANGE_MS) return;
     const next = { start: syncRange.start, end: syncRange.end, userEmail: email };
     if (rangesMatch(next, applied)) return;
+    setSelectedEmail(email);
     setApplied(next);
-  }, [compact, selectedEmail, syncRange?.start, syncRange?.end, applied]);
+  }, [compact, selectedEmailFromParent, syncRange?.start, syncRange?.end, applied]);
 
   const statusBanner = (() => {
     if (coldLoad) {
       return {
         tone: "loading" as const,
-        text: "Building hourly breakdown from Time Doctor and Google Workspace — this can take a minute.",
+        text: "Building hourly breakdown — usually 15–45 seconds. Previous data stays visible when you change employee or window.",
       };
     }
     if (showingStaleWindow) {
@@ -295,41 +330,26 @@ export function HourlyActivityReport({
       <div
         className={`surface-card p-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end transition-opacity ${isBusy ? "opacity-90" : ""}`}
       >
-        <label className="space-y-1 md:col-span-2">
+        <div className="space-y-1 md:col-span-2">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Search employee (email)
+            Find employee (by name)
           </span>
-          <div className="flex flex-col sm:flex-row gap-2">
-            {employeeOptions && employeeOptions.length > 0 ? (
-              <select
-                value={looksLikeEmail(search) ? search.trim().toLowerCase() : ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v) setSearch(v);
-                }}
-                disabled={isBusy}
-                className="h-8 px-2 rounded-md border border-border bg-background text-[12px] max-w-full sm:max-w-[220px] disabled:opacity-60"
-              >
-                <option value="">Pick from list…</option>
-                {employeeOptions.map((o) => (
-                  <option key={o.email} value={o.email}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-            <div className="relative flex-1">
-              <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="thirumalai@cintara.ai"
-                disabled={isBusy}
-                className="w-full h-8 pl-8 pr-3 rounded-md border border-border bg-background text-[13px] disabled:opacity-60"
-              />
-            </div>
-          </div>
-        </label>
+          <EmployeeEmailPicker
+            query={search}
+            onQueryChange={(v) => {
+              setSearch(v);
+              setSelectedEmail(null);
+            }}
+            selectedEmail={selectedEmail}
+            onSelect={(emp) => {
+              setSelectedEmail(emp.email);
+              setSearch(emp.name);
+            }}
+            disabled={isBusy}
+            extraOptions={employeeOptions}
+            placeholder="Type first or last name…"
+          />
+        </div>
         <label className="space-y-1">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Start (local)</span>
           <input
@@ -440,7 +460,7 @@ export function HourlyActivityReport({
         </div>
       ) : !coldLoad ? (
         <div className="surface-card p-3 text-[12px] text-muted-foreground">
-          Enter an employee email and time range (≤ 7 days), then load the hourly breakdown.
+          Type a name, pick from suggestions, choose a time range (≤ 7 days), then load the hourly breakdown.
         </div>
       ) : null}
 
@@ -452,7 +472,16 @@ export function HourlyActivityReport({
         </div>
       ) : null}
 
-      {coldLoad ? <TableSkeleton rows={8} /> : null}
+      {coldLoad ? (
+        <div className="surface-card p-8 flex flex-col items-center justify-center gap-3 min-h-[180px]">
+          <Loader2 className="h-9 w-9 animate-spin text-muted-foreground" />
+          <p className="text-sm text-foreground font-medium">Loading hourly report</p>
+          <p className="text-[12px] text-muted-foreground text-center max-w-md">
+            Fetching Time Doctor hours and Workspace activity for{" "}
+            <span className="font-medium">{resolvedEmployee?.name ?? "employee"}</span>…
+          </p>
+        </div>
+      ) : null}
 
       {!coldLoad && applied && !q.isError && filteredRows.length === 0 && !isBusy ? (
         <EmptyState
