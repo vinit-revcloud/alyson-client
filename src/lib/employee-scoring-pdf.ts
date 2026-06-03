@@ -3,6 +3,13 @@ import { autoTable } from "jspdf-autotable";
 import type { EmployeeScoringResponse } from "@/lib/employee-scoring-functions";
 import type { EmployeeScoreRow } from "@/lib/employee-scoring-rules";
 import { SCORING_WEIGHTS } from "@/lib/employee-scoring-rules";
+import { medalTierForRank } from "@/lib/rank-medals-core";
+import {
+  applyMedalRowStyle,
+  drawCuteMedalInCell,
+  rankColumnBodyPlaceholder,
+  rankColumnHeadLabel,
+} from "@/lib/rank-medals-pdf";
 
 function topNBy(rows: EmployeeScoreRow[], pick: (row: EmployeeScoreRow) => number, n = 8) {
   return [...rows].sort((a, b) => pick(b) - pick(a)).slice(0, n);
@@ -170,7 +177,7 @@ export function downloadEmployeeScoringPdf(args: {
     startY: ruleY + 8,
     margin: { left: margin, right: margin },
     head: [[
-      "Rank",
+      rankColumnHeadLabel(),
       "Employee",
       "Grade",
       "Score",
@@ -182,7 +189,7 @@ export function downloadEmployeeScoringPdf(args: {
       "Docs",
     ]],
     body: rows.map((r) => [
-      String(r.rank),
+      medalTierForRank(r.rank) ? rankColumnBodyPlaceholder() : `#${r.rank}`,
       `${r.displayName}\n${r.userEmail}`,
       r.grade,
       r.compositeScore.toFixed(1),
@@ -196,7 +203,7 @@ export function downloadEmployeeScoringPdf(args: {
     styles: { fontSize: 7, cellPadding: 2.5, overflow: "linebreak" },
     headStyles: { fillColor: [245, 245, 245], textColor: 20 },
     columnStyles: {
-      0: { halign: "center", cellWidth: 28 },
+      0: { halign: "center", cellWidth: 34 },
       1: { cellWidth: 150 },
       2: { halign: "center", cellWidth: 32 },
       3: { halign: "right", cellWidth: 36 },
@@ -206,6 +213,19 @@ export function downloadEmployeeScoringPdf(args: {
       7: { halign: "right" },
       8: { halign: "right" },
       9: { halign: "right" },
+    },
+    didParseCell: (data) => {
+      if (data.section !== "body") return;
+      const row = rows[data.row.index];
+      if (!row) return;
+      applyMedalRowStyle(data, row.rank);
+    },
+    didDrawCell: (data) => {
+      if (data.section !== "body" || data.column.index !== 0) return;
+      const row = rows[data.row.index];
+      if (!row) return;
+      const tier = medalTierForRank(row.rank);
+      if (tier) drawCuteMedalInCell(doc, data, tier);
     },
   });
 

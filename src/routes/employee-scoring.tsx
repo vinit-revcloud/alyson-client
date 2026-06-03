@@ -16,6 +16,8 @@ import {
   type EmployeeScoringStoredState,
 } from "@/lib/employee-scoring-session";
 import { SCORING_WEIGHTS } from "@/lib/employee-scoring-rules";
+import { medalRowClass, rankCellContent } from "@/lib/rank-medals";
+import { HourlyActivityReport } from "@/components/HourlyActivityReport";
 
 const PRESET_DAYS = [7, 14, 30, 45, 90] as const;
 
@@ -90,6 +92,7 @@ function EmployeeScoringPage() {
     () => boot?.applied ?? { start: fallbackStart, end: fallbackEnd },
   );
   const [search, setSearch] = useState(() => boot?.search ?? "");
+  const [hourlyEmployeeEmail, setHourlyEmployeeEmail] = useState<string | null>(null);
 
   const persisted = useMemo(() => {
     const snapshot = readEmployeeScoringSnapshot(applied);
@@ -137,6 +140,15 @@ function EmployeeScoringPage() {
       (r) => r.userEmail.toLowerCase().includes(s) || r.displayName.toLowerCase().includes(s),
     );
   }, [q.data?.rows, search]);
+
+  const hourlyEmployeeOptions = useMemo(
+    () =>
+      (q.data?.rows ?? []).slice(0, 80).map((r) => ({
+        email: r.userEmail,
+        label: `${r.displayName} (${r.userEmail})`,
+      })),
+    [q.data?.rows],
+  );
 
   const lastToastKey = useRef<string | null>(null);
   useEffect(() => {
@@ -512,7 +524,7 @@ function EmployeeScoringPage() {
                 <table className="ops-table w-full">
                   <thead>
                     <tr>
-                      <th align="left">Rank</th>
+                      <th align="center">Medal</th>
                       <th align="left">Employee</th>
                       <th align="center">Grade</th>
                       <th align="right">Score</th>
@@ -529,8 +541,17 @@ function EmployeeScoringPage() {
                   </thead>
                   <tbody>
                     {filteredRows.map((r) => (
-                      <tr key={r.userEmail}>
-                        <td className="font-mono text-muted-foreground">#{r.rank}</td>
+                      <tr
+                        key={r.userEmail}
+                        className={
+                          medalRowClass(r.rank) +
+                          (hourlyEmployeeEmail === r.userEmail ? " ring-1 ring-inset ring-foreground/25" : "") +
+                          " cursor-pointer hover:opacity-95"
+                        }
+                        onClick={() => setHourlyEmployeeEmail(r.userEmail)}
+                        title="Click to load hourly breakdown below"
+                      >
+                        <td align="center">{rankCellContent(r.rank)}</td>
                         <td>
                           <div className="font-medium text-[13px]">{r.displayName}</div>
                           <div className="text-[11px] text-muted-foreground">{r.userEmail}</div>
@@ -575,6 +596,22 @@ function EmployeeScoringPage() {
             </div>
           </div>
         ) : null}
+
+        <div className="pt-4 border-t border-border">
+          <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground font-medium mb-3">
+            Hourly breakdown
+          </div>
+          <p className="text-[12px] text-muted-foreground mb-4 max-w-2xl">
+            Click a row above or pick an employee — uses the same scoring window (max 7 days per hourly load). Top 3
+            get gold, silver, and bronze medals with row highlights.
+          </p>
+          <HourlyActivityReport
+            compact
+            syncRange={applied}
+            selectedEmail={hourlyEmployeeEmail}
+            employeeOptions={hourlyEmployeeOptions}
+          />
+        </div>
       </div>
     </div>
   );

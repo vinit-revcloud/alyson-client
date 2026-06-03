@@ -1299,3 +1299,22 @@ async function seedUsersFromWorklogs(companyId: string): Promise<Array<{ id: str
   return Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+const WorklogEntriesInput = z.object({
+  userId: z.string().min(1),
+  start: DateSchema,
+  end: DateSchema,
+});
+
+/** Raw worklog + poor-time segments with start times (for hourly bucketing). */
+export const fetchUserWorklogEntriesForRange = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => WorklogEntriesInput.parse(data))
+  .handler(async ({ data }) => {
+    const company = await getCompany({ auth: "access_only" });
+    const range = clampRange(data.start, data.end);
+    const [worklogs, poorTime] = await Promise.all([
+      listCompanyWorklogs(company.id, range, data.userId, { auth: "access_only" }),
+      listCompanyPoorTime(company.id, range, data.userId, { auth: "access_only" }),
+    ]);
+    return { range, worklogs, poorTime };
+  });
+

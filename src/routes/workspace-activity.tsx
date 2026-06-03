@@ -7,6 +7,8 @@ import { EmptyState, PageHeader, TableScroll } from "@/components/AppShell";
 import { downloadCSV } from "@/lib/csv";
 import { getWorkspaceActivity } from "@/lib/workspace-activity-functions";
 import { downloadWorkspaceActivityPdf } from "@/lib/workspace-activity-pdf";
+import { medalRowClass, rankCellContent, workspaceActivityRank } from "@/lib/rank-medals";
+import { HourlyActivityReport } from "@/components/HourlyActivityReport";
 import {
   ResponsiveContainer,
   BarChart,
@@ -79,6 +81,7 @@ function WorkspaceActivityPage() {
   const [draftStart, setDraftStart] = useState(() => boot?.draftStart ?? isoForInput(new Date(now.getTime() - 23 * 60 * 60 * 1000)));
   const [applied, setApplied] = useState<{ start: string; end: string } | null>(() => boot?.applied ?? { start: fallbackStart, end: fallbackEnd });
   const [search, setSearch] = useState(() => boot?.search ?? "");
+  const [hourlyEmployeeEmail, setHourlyEmployeeEmail] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"emails" | "meetings" | "docs" | "chat">(() => boot?.sortBy ?? "emails");
   const [sortDir, setSortDir] = useState<"asc" | "desc">(() => boot?.sortDir ?? "desc");
 
@@ -116,6 +119,17 @@ function WorkspaceActivityPage() {
       return a.userEmail.localeCompare(b.userEmail);
     });
   }, [rows, search, sortBy, sortDir]);
+
+  const rankByEmail = useMemo(() => workspaceActivityRank(rows), [rows]);
+
+  const hourlyEmployeeOptions = useMemo(
+    () =>
+      rows.slice(0, 80).map((r) => ({
+        email: r.userEmail,
+        label: r.userEmail,
+      })),
+    [rows],
+  );
 
   const totalsComparison = useMemo(() => {
     return [
@@ -399,6 +413,7 @@ function WorkspaceActivityPage() {
               <table className="ops-table w-full">
                 <thead>
                   <tr>
+                    <th align="center">Medal</th>
                     <th align="left">User email</th>
                     <th align="right">Emails sent</th>
                     <th align="right">Meetings in window</th>
@@ -407,8 +422,20 @@ function WorkspaceActivityPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((r) => (
-                    <tr key={r.userEmail}>
+                  {filteredRows.map((r) => {
+                    const rank = rankByEmail.get(r.userEmail) ?? 0;
+                    return (
+                    <tr
+                      key={r.userEmail}
+                      className={
+                        medalRowClass(rank) +
+                        (hourlyEmployeeEmail === r.userEmail ? " ring-1 ring-inset ring-foreground/25" : "") +
+                        " cursor-pointer hover:opacity-95"
+                      }
+                      onClick={() => setHourlyEmployeeEmail(r.userEmail)}
+                      title="Click to load hourly breakdown below"
+                    >
+                      <td align="center">{rank > 0 ? rankCellContent(rank) : "—"}</td>
                       <td>{r.userEmail}</td>
                       <td align="right" className="font-mono">
                         {r.emailsSent}
@@ -423,7 +450,7 @@ function WorkspaceActivityPage() {
                         {r.chatMessagesSent}
                       </td>
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             </TableScroll>
@@ -471,6 +498,22 @@ function WorkspaceActivityPage() {
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+            </div>
+
+            <div className="pt-4 border-t border-border">
+              <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground font-medium mb-3">
+                Hourly breakdown
+              </div>
+              <p className="text-[12px] text-muted-foreground mb-4 max-w-2xl">
+                Hour-by-hour activity for one employee (emails, chat, docs, meetings, Time Doctor). Top 3 rows above
+                use gold / silver / bronze highlights by total activity in the window.
+              </p>
+              <HourlyActivityReport
+                compact
+                syncRange={applied}
+                selectedEmail={hourlyEmployeeEmail}
+                employeeOptions={hourlyEmployeeOptions}
+              />
             </div>
           </>
         )}

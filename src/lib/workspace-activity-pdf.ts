@@ -1,6 +1,13 @@
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import type { WorkspaceActivityRow } from "@/lib/workspace-activity-functions";
+import { medalTierForRank, workspaceActivityRank } from "@/lib/rank-medals-core";
+import {
+  applyMedalRowStyle,
+  drawCuteMedalInCell,
+  rankColumnBodyPlaceholder,
+  rankColumnHeadLabel,
+} from "@/lib/rank-medals-pdf";
 
 function topNBy<T>(rows: T[], pick: (row: T) => number, n = 10) {
   return [...rows].sort((a, b) => pick(b) - pick(a)).slice(0, n);
@@ -142,17 +149,25 @@ export function downloadWorkspaceActivityPdf(args: {
     color: [220, 38, 38],
   });
 
+  const rankByEmail = workspaceActivityRank(rows);
+  const rowsWithRank = rows.map((r) => ({
+    ...r,
+    rank: rankByEmail.get(r.userEmail) ?? 0,
+  }));
+
   autoTable(doc, {
     startY: 292,
     margin: { left: margin, right: margin },
     head: [[
+      rankColumnHeadLabel(),
       "User Email",
       "Emails Sent",
       "Meetings",
       "Docs Created",
       "Chat Messages",
     ]],
-    body: rows.map((r) => [
+    body: rowsWithRank.map((r) => [
+      medalTierForRank(r.rank) ? rankColumnBodyPlaceholder() : r.rank > 0 ? `#${r.rank}` : "—",
       r.userEmail,
       String(r.emailsSent),
       String(r.meetingsCreated),
@@ -162,11 +177,25 @@ export function downloadWorkspaceActivityPdf(args: {
     styles: { fontSize: 8, cellPadding: 3, overflow: "linebreak" },
     headStyles: { fillColor: [245, 245, 245], textColor: 20 },
     columnStyles: {
-      0: { cellWidth: 260 },
-      1: { halign: "right" },
+      0: { halign: "center", cellWidth: 34 },
+      1: { cellWidth: 230 },
       2: { halign: "right" },
       3: { halign: "right" },
       4: { halign: "right" },
+      5: { halign: "right" },
+    },
+    didParseCell: (data) => {
+      if (data.section !== "body") return;
+      const row = rowsWithRank[data.row.index];
+      if (!row || row.rank <= 0) return;
+      applyMedalRowStyle(data, row.rank);
+    },
+    didDrawCell: (data) => {
+      if (data.section !== "body" || data.column.index !== 0) return;
+      const row = rowsWithRank[data.row.index];
+      if (!row) return;
+      const tier = medalTierForRank(row.rank);
+      if (tier) drawCuteMedalInCell(doc, data, tier);
     },
   });
 
