@@ -1,10 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Activity, ArrowDownAZ, ArrowUpAZ, Download, FileText, RefreshCw, Search } from "lucide-react";
+import { Activity, ArrowDownAZ, ArrowUpAZ, Download, FileText, Loader2, RefreshCw, Search } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState, PageHeader, TableScroll } from "@/components/AppShell";
+import { TableSkeleton } from "@/components/Skeleton";
 import { downloadCSV } from "@/lib/csv";
+import {
+  loadWorkspaceActivitySession,
+  readWorkspaceActivitySnapshot,
+  saveWorkspaceActivitySession,
+  workspaceSnapshotKey,
+} from "@/lib/workspace-activity-session";
 import { getWorkspaceActivity } from "@/lib/workspace-activity-functions";
 import { downloadWorkspaceActivityPdf } from "@/lib/workspace-activity-pdf";
 import { medalRowClass, rankCellContent, workspaceActivityRank } from "@/lib/rank-medals";
@@ -21,29 +28,13 @@ import {
 } from "recharts";
 
 const PRESET_DAYS = [1, 7, 30, 45, 90] as const;
-const STORAGE_KEY = "alyson-workspace-activity-session";
 
-type StoredState = {
-  version: 1;
-  draftStart: string;
-  draftEnd: string;
-  applied: { start: string; end: string } | null;
-  search: string;
-  sortBy?: "emails" | "meetings" | "docs" | "chat";
-  sortDir?: "asc" | "desc";
-};
-
-function loadStoredState(): StoredState | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredState;
-    if (parsed?.version !== 1) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+function rangesMatch(
+  a: { start: string; end: string } | null,
+  b: { start: string; end: string } | null,
+) {
+  if (!a || !b) return false;
+  return a.start === b.start && a.end === b.end;
 }
 
 export const Route = createFileRoute("/workspace-activity")({
@@ -73,7 +64,7 @@ function fmtIso(iso: string) {
 
 function WorkspaceActivityPage() {
   const now = useMemo(() => new Date(), []);
-  const boot = useMemo(() => loadStoredState(), []);
+  const boot = useMemo(() => loadWorkspaceActivitySession(), []);
   const fallbackStart = useMemo(() => new Date(now.getTime() - 23 * 60 * 60 * 1000).toISOString(), [now]);
   const fallbackEnd = useMemo(() => now.toISOString(), [now]);
 
@@ -84,6 +75,13 @@ function WorkspaceActivityPage() {
   const [hourlyEmployeeEmail, setHourlyEmployeeEmail] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"emails" | "meetings" | "docs" | "chat">(() => boot?.sortBy ?? "emails");
   const [sortDir, setSortDir] = useState<"asc" | "desc">(() => boot?.sortDir ?? "desc");
+
+  const persisted = useMemo(() => {
+    const snapshot = readWorkspaceActivitySnapshot(applied);
+    if (!snapshot || !applied) return null;
+    const stored = loadWorkspaceActivitySession();
+    return { snapshot, at: stored?.snapshotAt ?? boot?.snapshotAt ?? Date.now() };
+  }, [applied, boot?.snapshotAt]);
 
   const q = useQuery({
     queryKey: ["workspace-activity", applied?.start ?? "idle", applied?.end ?? "idle"],
@@ -97,11 +95,26 @@ function WorkspaceActivityPage() {
           : undefined,
       }),
     enabled: applied !== null,
+    initialData: persisted?.snapshot,
+    initialDataUpdatedAt: persisted?.at,
     placeholderData: keepPreviousData,
     staleTime: 120_000,
     gcTime: 24 * 60 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
+
+  const draftRange = useMemo(() => {
+    if (!draftStart || !draftEnd) return null;
+    const s = new Date(draftStart);
+    const e = new Date(draftEnd);
+    if (!Number.isFinite(s.getTime()) || !Number.isFinite(e.getTime())) return null;
+    return { start: s.toISOString(), end: e.toISOString() };
+  }, [draftStart, draftEnd]);
+
+  const draftMatchesApplied = rangesMatch(draftRange, applied);
+  const isBusy = q.isFetching;
+  const showingStaleWindow = q.isPlaceholderData && isBusy;
+  const coldLoad = q.isPending && !q.data;
 
   const rows = q.data?.rows ?? [];
   const filteredRows = useMemo(() => {
@@ -169,13 +182,29 @@ function WorkspaceActivityPage() {
       }));
   }, [filteredRows]);
 
+  const lastToastKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!q.isSuccess || q.isPlaceholderData || !q.data || !applied) return;
+    const key = workspaceSnapshotKey(applied);
+    if (lastToastKey.current === key) return;
+    if (lastToastKey.current !== null) {
+      toast.success("Workspace activity updated");
+    }
+    lastToastKey.current = key;
+  }, [q.isSuccess, q.isPlaceholderData, q.data, applied]);
+
   const apply = () => {
     if (!draftStart || !draftEnd) return toast.error("Select start and end datetime");
     const s = new Date(draftStart);
     const e = new Date(draftEnd);
     if (!Number.isFinite(s.getTime()) || !Number.isFinite(e.getTime())) return toast.error("Invalid datetime range");
     if (s.getTime() >= e.getTime()) return toast.error("Start must be before end");
-    setApplied({ start: s.toISOString(), end: e.toISOString() });
+    const next = { start: s.toISOString(), end: e.toISOString() };
+    if (rangesMatch(next, applied)) {
+      void q.refetch();
+      return;
+    }
+    setApplied(next);
   };
 
   const applyPreset = (days: (typeof PRESET_DAYS)[number]) => {
@@ -187,7 +216,7 @@ function WorkspaceActivityPage() {
   };
 
   const exportCsv = () => {
-    if (!filteredRows.length) return toast.error("No rows to export");
+    if (!filteredRows.length || showingStaleWindow) return toast.error("Wait for activity to finish loading");
     const suffix = q.data?.range?.start?.slice(0, 10) ?? new Date().toISOString().slice(0, 10);
     downloadCSV(
       `workspace-activity-${suffix}.csv`,
@@ -210,8 +239,8 @@ function WorkspaceActivityPage() {
   };
 
   const exportPdf = () => {
-    if (!q.data || !filteredRows.length) {
-      toast.error("No rows to export");
+    if (!q.data || !filteredRows.length || showingStaleWindow) {
+      toast.error("Wait for activity to finish loading");
       return;
     }
     downloadWorkspaceActivityPdf({
@@ -234,21 +263,54 @@ function WorkspaceActivityPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const payload: StoredState = {
-      version: 1,
+    if (!q.isSuccess || q.isPlaceholderData || !q.data || !applied) {
+      saveWorkspaceActivitySession({
+        version: 2,
+        draftStart,
+        draftEnd,
+        applied,
+        search,
+        sortBy,
+        sortDir,
+      });
+      return;
+    }
+    saveWorkspaceActivitySession({
+      version: 2,
       draftStart,
       draftEnd,
       applied,
       search,
       sortBy,
       sortDir,
-    };
-    try {
-      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    } catch {
-      // ignore quota/private mode
+      snapshot: q.data,
+      snapshotKey: workspaceSnapshotKey(applied),
+      snapshotAt: Date.now(),
+    });
+  }, [draftStart, draftEnd, applied, search, sortBy, sortDir, q.data, q.isSuccess, q.isPlaceholderData]);
+
+  const statusBanner = (() => {
+    if (coldLoad) {
+      return {
+        tone: "loading" as const,
+        text: "Loading Google Workspace activity — this can take a minute for large teams.",
+      };
     }
-  }, [draftStart, draftEnd, applied, search, sortBy, sortDir]);
+    if (showingStaleWindow) {
+      return {
+        tone: "loading" as const,
+        text: "Updating activity for the new window — previous table stays visible until ready.",
+      };
+    }
+    if (isBusy) return { tone: "loading" as const, text: "Refreshing workspace activity…" };
+    if (q.isError) {
+      return {
+        tone: "error" as const,
+        text: q.error instanceof Error ? q.error.message : "Failed to load workspace activity",
+      };
+    }
+    return null;
+  })();
 
   return (
     <div className="ops-dense">
@@ -260,15 +322,15 @@ function WorkspaceActivityPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => q.refetch()}
-              disabled={!applied || q.isFetching}
+              disabled={!applied || isBusy}
               className="h-8 px-3 rounded-md border border-border text-xs inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw className={`h-3.5 w-3.5 ${isBusy ? "animate-spin" : ""}`} />
               Refresh
             </button>
             <button
               onClick={exportCsv}
-              disabled={!filteredRows.length}
+              disabled={!filteredRows.length || showingStaleWindow}
               className="h-8 px-3 rounded-md border border-border text-xs inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" />
@@ -276,7 +338,7 @@ function WorkspaceActivityPage() {
             </button>
             <button
               onClick={exportPdf}
-              disabled={!filteredRows.length}
+              disabled={!filteredRows.length || showingStaleWindow}
               className="h-8 px-3 rounded-md border border-border text-xs inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
             >
               <FileText className="h-3.5 w-3.5" />
@@ -287,14 +349,17 @@ function WorkspaceActivityPage() {
       />
 
       <div className="px-5 md:px-8 py-6 space-y-5">
-        <div className="surface-card p-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+        <div
+          className={`surface-card p-4 grid grid-cols-1 md:grid-cols-4 gap-3 items-end transition-opacity ${isBusy ? "opacity-90" : ""}`}
+        >
           <label className="space-y-1">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Start (local)</span>
             <input
               type="datetime-local"
               value={draftStart}
               onChange={(e) => setDraftStart(e.target.value)}
-              className="w-full h-8 px-2 rounded-md border border-border bg-background text-sm"
+              disabled={isBusy}
+              className="w-full h-8 px-2 rounded-md border border-border bg-background text-sm disabled:opacity-60"
             />
           </label>
           <label className="space-y-1">
@@ -303,18 +368,29 @@ function WorkspaceActivityPage() {
               type="datetime-local"
               value={draftEnd}
               onChange={(e) => setDraftEnd(e.target.value)}
-              className="w-full h-8 px-2 rounded-md border border-border bg-background text-sm"
+              disabled={isBusy}
+              className="w-full h-8 px-2 rounded-md border border-border bg-background text-sm disabled:opacity-60"
             />
           </label>
           <button
             type="button"
             onClick={apply}
-            className="h-8 px-4 rounded-md bg-foreground text-background text-xs font-medium"
+            disabled={isBusy}
+            className="h-8 px-4 rounded-md bg-foreground text-background text-xs font-medium inline-flex items-center justify-center gap-1.5 disabled:opacity-70 min-w-[9rem]"
           >
-            Apply window
+            {isBusy ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading…
+              </>
+            ) : draftMatchesApplied ? (
+              "Recompute"
+            ) : (
+              "Apply window"
+            )}
           </button>
           <div className="text-[11px] text-muted-foreground">
-            Default window is last 23 hours. Times shown below are IST.
+            Default: last 23 hours. Table stays visible while new data loads (IST).
           </div>
           <div className="md:col-span-4 flex flex-wrap gap-1.5">
             {PRESET_DAYS.map((d) => (
@@ -330,12 +406,33 @@ function WorkspaceActivityPage() {
           </div>
         </div>
 
-        {q.data && (
-          <div className="surface-card p-3 text-[12px] text-muted-foreground">
-            Window (IST): {fmtIso(q.data.range.start)} → {fmtIso(q.data.range.end)} · Users processed: {q.data.usersProcessed}
-            {search.trim() ? ` · Showing: ${filteredRows.length}` : ""}
+        {statusBanner ? (
+          <div
+            className={
+              "rounded-md border px-3 py-2.5 text-[12px] flex items-center gap-2 " +
+              (statusBanner.tone === "error"
+                ? "border-destructive/40 bg-destructive/5 text-destructive"
+                : "border-border bg-muted/40 text-foreground")
+            }
+            role="status"
+            aria-live="polite"
+          >
+            {statusBanner.tone === "loading" ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+            ) : null}
+            <span>{statusBanner.text}</span>
           </div>
-        )}
+        ) : null}
+
+        {q.data && !coldLoad ? (
+          <div className="surface-card p-3 text-[12px] text-muted-foreground">
+            {showingStaleWindow ? <span className="font-medium text-foreground">Pending window · </span> : null}
+            Window (IST): {fmtIso(q.data.range.start)} → {fmtIso(q.data.range.end)} · Users processed:{" "}
+            {q.data.usersProcessed}
+            {search.trim() ? ` · Showing: ${filteredRows.length}` : ""}
+            {persisted && !isBusy && !showingStaleWindow ? " · Restored from session" : ""}
+          </div>
+        ) : null}
 
         <div className="relative max-w-sm">
           <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -378,7 +475,7 @@ function WorkspaceActivityPage() {
           })}
         </div>
 
-        {q.data?.warnings?.length ? (
+        {q.data?.warnings?.length && !showingStaleWindow ? (
           <div className="surface-card p-4">
             <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground font-medium mb-2">Warnings</div>
             <ul className="text-xs text-muted-foreground space-y-1">
@@ -389,26 +486,30 @@ function WorkspaceActivityPage() {
           </div>
         ) : null}
 
-        {q.isLoading && !q.data ? (
-          <div className="text-sm text-muted-foreground">Loading workspace activity...</div>
-        ) : null}
+        {coldLoad ? <TableSkeleton rows={10} /> : null}
 
-        {q.isFetching && q.data ? (
-          <div className="text-[11px] text-muted-foreground">Refreshing activity in background...</div>
-        ) : null}
-
-        {!q.isLoading && !q.isFetching && q.isError ? (
-          <div className="surface-card p-4 text-sm text-destructive">
-            {q.error instanceof Error ? q.error.message : "Failed to load workspace activity"}
-          </div>
-        ) : null}
-
-        {!q.isLoading && !q.isFetching && q.data && filteredRows.length === 0 ? (
+        {!coldLoad && !isBusy && q.data && filteredRows.length === 0 ? (
           <EmptyState icon={Activity} title="No activity rows" description="No users or no activity events in this window." />
         ) : null}
 
         {!!filteredRows.length && (
           <>
+            <div className="relative min-h-[12rem]">
+              {showingStaleWindow ? (
+                <div
+                  className="absolute inset-0 z-10 rounded-lg bg-background/55 backdrop-blur-[1px] pointer-events-none flex items-start justify-center pt-8"
+                  aria-hidden
+                >
+                  <span className="text-[12px] text-muted-foreground bg-paper border border-border px-3 py-1.5 rounded-full shadow-sm">
+                    Updating activity…
+                  </span>
+                </div>
+              ) : null}
+              <div
+                className={
+                  showingStaleWindow ? "opacity-60 pointer-events-none select-none transition-opacity" : ""
+                }
+              >
             <TableScroll>
               <table className="ops-table w-full">
                 <thead>
@@ -454,6 +555,8 @@ function WorkspaceActivityPage() {
                 </tbody>
               </table>
             </TableScroll>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
               <div className="surface-card p-4 md:p-5">
