@@ -1,8 +1,8 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { PageHeader, TableScroll, EmptyState } from "@/components/AppShell";
-import { PageSkeleton } from "@/components/Skeleton";
+import { FetchingBar, TimeDashboardTableSkeleton } from "@/components/Skeleton";
 import { TimeDashboardRangePicker } from "@/components/TimeDashboardRangePicker";
 import { fetchTimeDoctorEmployeesTable, fetchTimeDoctorMonthlyUnderHoursReport, type TimeDoctorEmployeeRow } from "@/lib/time-doctor-functions";
 import { downloadTimeDoctorUnderHoursPdf } from "@/lib/time-doctor-under-hours-pdf";
@@ -11,7 +11,7 @@ import {
   formatRangeLabel,
   isIsoDate,
 } from "@/lib/time-dashboard-range";
-import { ArrowDownAZ, ArrowUpAZ, Clock, Download, FileText, RefreshCw, AlertTriangle } from "lucide-react";
+import { ArrowDownAZ, ArrowUpAZ, Clock, Download, FileText, Loader2, RefreshCw } from "lucide-react";
 import { downloadCSV } from "@/lib/csv";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -79,7 +79,15 @@ function TimeDashboardPage() {
         data: { start: appliedStart, end: appliedEnd },
       }),
     enabled: canAccess,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
+
+  const draftMatchesApplied = start === appliedStart && end === appliedEnd;
+  const isBusy = table.isFetching;
+  const showingStaleRange = table.isPlaceholderData && isBusy;
+  const coldLoad = table.isPending && !table.data;
 
   const data = table.data as
     | {
@@ -216,7 +224,9 @@ function TimeDashboardPage() {
   };
 
   const exportCsv = () => {
-    if (!employeeRollups.length) return toast.error("No employees to export");
+    if (!employeeRollups.length || showingStaleRange) {
+      return toast.error(showingStaleRange ? "Wait for the new range to finish loading" : "No employees to export");
+    }
     downloadCSV(`time-dashboard-${activeRange.start}-${activeRange.end}.csv`, employeeRollups.map((e) => {
       const rank = rankByEmployeeId.get(e.employee_id);
       const medal = rank === 1 ? "Gold" : rank === 2 ? "Silver" : rank === 3 ? "Bronze" : "";
@@ -242,64 +252,71 @@ function TimeDashboardPage() {
       toast.error("Start date must be on or before end date");
       return;
     }
+    if (start === appliedStart && end === appliedEnd) {
+      void table.refetch();
+      return;
+    }
     navigate({ to: "/time-dashboard", search: { start, end }, replace: true });
   };
+
+  const lastToastKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!table.isSuccess || table.isPlaceholderData || !table.data) return;
+    const key = `${appliedStart}:${appliedEnd}`;
+    if (lastToastKey.current === key) return;
+    if (lastToastKey.current !== null) {
+      toast.success("Time Dashboard updated");
+    }
+    lastToastKey.current = key;
+  }, [table.isSuccess, table.isPlaceholderData, table.data, appliedStart, appliedEnd]);
 
   const detailSearch = {
     start: isIsoDate(appliedStart) ? appliedStart : undefined,
     end: isIsoDate(appliedEnd) ? appliedEnd : undefined,
   };
 
+  const statusBanner = (() => {
+    if (coldLoad) {
+      return {
+        tone: "loading" as const,
+        text: "Loading Time Doctor data — fetching worklogs for your team. This can take 30–60 seconds for large ranges.",
+      };
+    }
+    if (showingStaleRange) {
+      return {
+        tone: "loading" as const,
+        text: `Updating ${formatRangeLabel(appliedStart, appliedEnd)} — previous table stays visible until ready.`,
+      };
+    }
+    if (isBusy) {
+      return { tone: "loading" as const, text: "Refreshing Time Doctor data…" };
+    }
+    if (table.error && !table.data) {
+      return {
+        tone: "error" as const,
+        text: table.error instanceof Error ? table.error.message : "Failed to load Time Doctor dashboard",
+      };
+    }
+    return null;
+  })();
+
   if (!canAccess) {
     return <TimeDashboardGate />;
   }
 
-  const listLoading = !showingUserDetail && table.isLoading;
-  const listError = !showingUserDetail && table.error;
-
   return (
     <div className="ops-dense">
       {showingUserDetail ? <Outlet /> : null}
-      {listLoading ? (
-        <PageSkeleton />
-      ) : listError ? (
-        <div className="ops-dense">
-          <PageHeader
-            eyebrow="People"
-            title="Time Dashboard"
-            description="Real-time Time Doctor data. If refresh tokens are invalid, we will still render employees using the access token."
-            dense
-          />
-          <div className="px-5 md:px-8 py-6">
-            <div className="surface-card p-5">
-              <div className="flex items-start gap-3">
-                <div className="h-9 w-9 rounded-full bg-warning/15 grid place-items-center text-warning shrink-0">
-                  <AlertTriangle className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-medium">Unable to load Time Doctor dashboard</div>
-                  <div className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
-                    {table.error instanceof Error ? table.error.message : "Unknown error"}
-                  </div>
-                  <div className="mt-4">
-                    <button
-                      onClick={() => table.refetch()}
-                      className="h-8 px-3 rounded-md bg-foreground text-background text-xs flex items-center gap-1.5"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" /> Retry
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : !showingUserDetail ? (
+      {!showingUserDetail ? (
         <>
           <PageHeader
             eyebrow="People"
             title="Time Dashboard"
-            description={`Time Doctor — ${data?.company?.name ?? "…"}. Period = ${rangeLabel}. Today / weekly / month use ${data?.day ?? "today"} (${data?.timeZoneLabel ?? "company timezone"}). Top 3 get gold, silver, and bronze by ${medalSortLabel}.`}
+            description={
+              coldLoad
+                ? "Connecting to Time Doctor…"
+                : `Time Doctor — ${data?.company?.name ?? "…"}. Period = ${rangeLabel}. Today / weekly / month use ${data?.day ?? "today"} (${data?.timeZoneLabel ?? "company timezone"}). Top 3 get gold, silver, and bronze by ${medalSortLabel}.`
+            }
             dense
             actions={
               <>
@@ -309,34 +326,39 @@ function TimeDashboardPage() {
                   onStartChange={setStart}
                   onEndChange={setEnd}
                   onApply={applyRange}
+                  isBusy={isBusy}
+                  draftMatchesApplied={draftMatchesApplied}
                 />
                 <button
                   onClick={() => table.refetch()}
-                  className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted"
+                  disabled={isBusy}
+                  className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />
+                  <RefreshCw className={`h-3.5 w-3.5 ${isBusy ? "animate-spin" : ""}`} />
                   Refresh
                 </button>
                 <button
                   onClick={exportCsv}
-                  className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted"
+                  disabled={!employeeRollups.length || showingStaleRange || coldLoad}
+                  className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
                 >
                   <Download className="h-3.5 w-3.5" />
                   Export
                 </button>
-                <label className="h-8 px-2 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted cursor-pointer">
+                <label className="h-8 px-2 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted cursor-pointer disabled:opacity-50">
                   <span className="text-muted-foreground whitespace-nowrap">Month</span>
                   <input
                     type="month"
                     value={underHoursMonth}
                     onChange={(e) => setUnderHoursMonth(e.target.value)}
-                    className="bg-transparent text-xs outline-none w-[7.5rem]"
+                    disabled={underHoursPdfLoading || coldLoad}
+                    className="bg-transparent text-xs outline-none w-[7.5rem] disabled:opacity-60"
                     aria-label="Month for under-hours weekly PDF"
                   />
                 </label>
                 <button
                   onClick={() => void exportUnderHoursPdf()}
-                  disabled={underHoursPdfLoading}
+                  disabled={underHoursPdfLoading || coldLoad || showingStaleRange}
                   className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
                   title="Download PDF listing employees under 35 hours for each week of the selected month"
                 >
@@ -347,8 +369,50 @@ function TimeDashboardPage() {
             }
           />
 
-          <div className="px-5 md:px-8 py-6 space-y-6">
-            {data?.warnings?.length ? (
+          <div className="px-5 md:px-8 py-6 space-y-5">
+            <FetchingBar active={isBusy && !coldLoad} />
+
+            {statusBanner ? (
+              <div
+                className={
+                  "rounded-md border px-3 py-2.5 text-[12px] flex items-center gap-2 " +
+                  (statusBanner.tone === "error"
+                    ? "border-destructive/40 bg-destructive/5 text-destructive"
+                    : "border-border bg-muted/40 text-foreground")
+                }
+                role="status"
+                aria-live="polite"
+              >
+                {statusBanner.tone === "loading" ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                ) : null}
+                <span>{statusBanner.text}</span>
+                {statusBanner.tone === "error" ? (
+                  <button
+                    onClick={() => table.refetch()}
+                    className="ml-auto h-7 px-2.5 rounded-md bg-foreground text-background text-[11px] inline-flex items-center gap-1"
+                  >
+                    <RefreshCw className="h-3 w-3" /> Retry
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {coldLoad ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="surface-card p-4 space-y-2">
+                      <div className="h-3 w-24 rounded-md bg-muted/60 animate-pulse" />
+                      <div className="h-7 w-20 rounded-md bg-muted/60 animate-pulse mt-2" />
+                    </div>
+                  ))}
+                </div>
+                <TimeDashboardTableSkeleton />
+              </>
+            ) : table.error && !table.data ? null : (
+              <>
+            {data?.warnings?.length && !showingStaleRange ? (
               <div className="surface-card p-4">
                 <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground font-medium mb-2">
                   Notes
@@ -411,6 +475,36 @@ function TimeDashboardPage() {
               </div>
             </div>
 
+            {data && !coldLoad ? (
+              <div className="surface-card p-3 text-[12px] text-muted-foreground">
+                {showingStaleRange ? (
+                  <span className="font-medium text-foreground">Pending range · </span>
+                ) : null}
+                Period: {rangeLabel}
+                {data.timeZoneLabel ? ` · ${data.timeZoneLabel}` : ""}
+                {q.trim() ? ` · Showing ${employeeRollups.length}` : ""}
+              </div>
+            ) : null}
+
+            <div className="relative min-h-[12rem]">
+              {showingStaleRange ? (
+                <div
+                  className="absolute inset-0 z-10 rounded-lg bg-background/55 backdrop-blur-[1px] pointer-events-none flex items-start justify-center pt-10"
+                  aria-hidden
+                >
+                  <span className="text-[12px] text-muted-foreground bg-paper border border-border px-3 py-1.5 rounded-full shadow-sm inline-flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading {formatRangeLabel(appliedStart, appliedEnd)}…
+                  </span>
+                </div>
+              ) : null}
+              <div
+                className={
+                  showingStaleRange
+                    ? "opacity-55 pointer-events-none select-none transition-opacity duration-300"
+                    : "transition-opacity duration-300"
+                }
+              >
             <TableScroll>
               <table className="ops-table w-full table-fixed">
                 <colgroup>
@@ -572,9 +666,13 @@ function TimeDashboardPage() {
                 </tbody>
               </table>
             </TableScroll>
+              </div>
+            </div>
 
-            {employeeRollups.length === 0 && (
+            {employeeRollups.length === 0 && !showingStaleRange && (
               <EmptyState icon={Clock} title="No employees" description="No Time Doctor users matched your search." />
+            )}
+              </>
             )}
           </div>
         </>

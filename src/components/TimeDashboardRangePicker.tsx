@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import {
   TIME_DASHBOARD_PRESETS,
   type TimeDashboardPresetId,
@@ -11,20 +12,34 @@ type Props = {
   onEndChange: (v: string) => void;
   onApply: () => void;
   compact?: boolean;
+  isBusy?: boolean;
+  draftMatchesApplied?: boolean;
 };
 
-export function TimeDashboardRangePicker({ start, end, onStartChange, onEndChange, onApply, compact }: Props) {
+export function TimeDashboardRangePicker({
+  start,
+  end,
+  onStartChange,
+  onEndChange,
+  onApply,
+  compact,
+  isBusy = false,
+  draftMatchesApplied = true,
+}: Props) {
   const applyPreset = (id: TimeDashboardPresetId) => {
     const r = resolvePresetRange(id);
     onStartChange(r.start);
     onEndChange(r.end);
   };
 
+  const pendingDraft = !draftMatchesApplied && !isBusy;
+
   return (
     <div className={`flex flex-wrap items-center gap-2 ${compact ? "" : ""}`}>
       <select
-        className="h-7 px-2 rounded-md border border-border bg-background text-[11.5px] max-w-[9.5rem]"
+        className="h-7 px-2 rounded-md border border-border bg-background text-[11.5px] max-w-[9.5rem] disabled:opacity-60"
         defaultValue=""
+        disabled={isBusy}
         onChange={(e) => {
           const v = e.target.value as TimeDashboardPresetId | "";
           if (!v) return;
@@ -40,12 +55,20 @@ export function TimeDashboardRangePicker({ start, end, onStartChange, onEndChang
           </option>
         ))}
       </select>
-      <div className="flex items-center gap-2 rounded-md border border-border bg-paper px-2 py-1.5">
+      <div
+        className={
+          "flex items-center gap-2 rounded-md border px-2 py-1.5 transition-colors " +
+          (pendingDraft
+            ? "border-foreground/25 bg-foreground/[0.03] ring-1 ring-foreground/10"
+            : "border-border bg-paper")
+        }
+      >
         <input
           type="date"
           value={start}
           onChange={(e) => onStartChange(e.target.value)}
-          className="h-7 rounded bg-transparent text-[12.5px] text-foreground px-1.5"
+          disabled={isBusy}
+          className="h-7 rounded bg-transparent text-[12.5px] text-foreground px-1.5 disabled:opacity-60"
           aria-label="Range start"
         />
         <span className="text-muted-foreground text-xs">→</span>
@@ -53,17 +76,31 @@ export function TimeDashboardRangePicker({ start, end, onStartChange, onEndChang
           type="date"
           value={end}
           onChange={(e) => onEndChange(e.target.value)}
-          className="h-7 rounded bg-transparent text-[12.5px] text-foreground px-1.5"
+          disabled={isBusy}
+          className="h-7 rounded bg-transparent text-[12.5px] text-foreground px-1.5 disabled:opacity-60"
           aria-label="Range end"
         />
         <button
           type="button"
           onClick={onApply}
-          className="h-7 px-2.5 rounded bg-foreground text-background text-[11.5px] font-medium"
+          disabled={isBusy}
+          className="h-7 px-2.5 rounded bg-foreground text-background text-[11.5px] font-medium inline-flex items-center gap-1.5 disabled:opacity-70 min-w-[4.75rem] justify-center"
         >
-          Apply
+          {isBusy ? (
+            <>
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Loading…
+            </>
+          ) : draftMatchesApplied ? (
+            "Refresh"
+          ) : (
+            "Apply"
+          )}
         </button>
       </div>
+      {pendingDraft ? (
+        <span className="text-[10px] text-muted-foreground whitespace-nowrap">Unapplied changes</span>
+      ) : null}
     </div>
   );
 }

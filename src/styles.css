@@ -424,6 +424,18 @@ button:disabled,
     transform: translate3d(0, 70%, 0);
   }
 }
+
+@keyframes td-fetch-bar {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(420%);
+  }
+}
+.td-fetch-bar {
+  animation: td-fetch-bar 1.15s ease-in-out infinite;
+}
 .alyson-beam {
   animation: alyson-beam 5.5s linear infinite;
 }

@@ -1,8 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader, TableScroll, EmptyState } from "@/components/AppShell";
-import { PageSkeleton } from "@/components/Skeleton";
+import { FetchingBar, TableSkeleton } from "@/components/Skeleton";
 import { TimeDashboardRangePicker } from "@/components/TimeDashboardRangePicker";
 import { fetchTimeDoctorUserDetail, type TimeDoctorUserDetail } from "@/lib/time-doctor-functions";
 import {
@@ -11,9 +11,9 @@ import {
   formatRangeLabel,
   isIsoDate,
 } from "@/lib/time-dashboard-range";
-import { ArrowLeft, Download, RefreshCw, Clock } from "lucide-react";
-import { downloadCSV } from "@/lib/csv";
+import { ArrowLeft, Download, Loader2, RefreshCw, Clock } from "lucide-react";
 import { toast } from "sonner";
+import { downloadCSV } from "@/lib/csv";
 import { z } from "zod";
 import {
   ResponsiveContainer,
@@ -81,6 +81,10 @@ function TimeDoctorEmployeePage() {
       toast.error("Start date must be on or before end date");
       return;
     }
+    if (draftStart === start && draftEnd === end) {
+      void q.refetch();
+      return;
+    }
     navigate({
       to: "/time-dashboard/$userId",
       params: { userId },
@@ -95,7 +99,30 @@ function TimeDoctorEmployeePage() {
     queryKey: ["time-doctor-user", userId, start, end, tab],
     queryFn: () => fetchTimeDoctorUserDetail({ data: { userId, start, end, tab } }),
     enabled: !!userId,
+    placeholderData: (previousData, previousQuery) => {
+      if (!previousData || !previousQuery) return undefined;
+      if (previousQuery.queryKey[3] !== tab) return undefined;
+      return previousData;
+    },
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
+
+  const draftMatchesApplied = draftStart === start && draftEnd === end;
+  const isBusy = q.isFetching;
+  const showingStaleRange = q.isPlaceholderData && isBusy;
+  const coldLoad = q.isPending && !q.data;
+
+  const lastToastKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (!q.isSuccess || q.isPlaceholderData || !q.data) return;
+    const key = `${start}:${end}:${tab}`;
+    if (lastToastKey.current === key) return;
+    if (lastToastKey.current !== null) {
+      toast.success("Employee data updated");
+    }
+    lastToastKey.current = key;
+  }, [q.isSuccess, q.isPlaceholderData, q.data, start, end, tab]);
 
   const data = (q.data ?? null) as TimeDoctorUserDetail | null;
   const user = data?.user ?? { id: userId, name: "Employee", email: "", title: "" };
@@ -171,6 +198,40 @@ function TimeDoctorEmployeePage() {
     }));
   }, [data?.rollups?.monthly]);
 
+  const tabLabel =
+    tab === "overview"
+      ? "Overview"
+      : tab === "attendance"
+        ? "Attendance"
+        : tab === "apps"
+          ? "Apps & Websites"
+          : "Projects & Tasks";
+
+  const statusBanner = (() => {
+    if (coldLoad) {
+      return {
+        tone: "loading" as const,
+        text: `Loading ${tabLabel} from Time Doctor — charts and tables may take a moment.`,
+      };
+    }
+    if (showingStaleRange) {
+      return {
+        tone: "loading" as const,
+        text: `Updating ${formatRangeLabel(start, end)} — previous ${tabLabel.toLowerCase()} stays visible until ready.`,
+      };
+    }
+    if (isBusy) {
+      return { tone: "loading" as const, text: `Refreshing ${tabLabel.toLowerCase()}…` };
+    }
+    if (q.isError && !data) {
+      return {
+        tone: "error" as const,
+        text: q.error instanceof Error ? q.error.message : "Failed to load employee details",
+      };
+    }
+    return null;
+  })();
+
   return (
     <div className="ops-dense">
       <PageHeader
@@ -199,6 +260,8 @@ function TimeDoctorEmployeePage() {
               onEndChange={setDraftEnd}
               onApply={applyRange}
               compact
+              isBusy={isBusy}
+              draftMatchesApplied={draftMatchesApplied}
             />
             <div className="inline-flex rounded-md border border-border p-0.5 bg-paper">
               {([
@@ -210,25 +273,29 @@ function TimeDoctorEmployeePage() {
                 <button
                   key={k}
                   onClick={() => setTab(k)}
+                  disabled={isBusy && tab === k}
                   className={
-                    "h-7 px-2.5 rounded text-[11.5px] font-medium flex items-center gap-1.5 " +
+                    "h-7 px-2.5 rounded text-[11.5px] font-medium flex items-center gap-1.5 disabled:opacity-70 " +
                     (tab === k ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")
                   }
                 >
+                  {tab === k && isBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                   {label}
                 </button>
               ))}
             </div>
             <button
               onClick={() => q.refetch()}
-              className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted"
+              disabled={isBusy}
+              className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
+              <RefreshCw className={`h-3.5 w-3.5 ${isBusy ? "animate-spin" : ""}`} />
               Refresh
             </button>
             <button
               onClick={exportCsv}
-              className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted"
+              disabled={!data || showingStaleRange || coldLoad}
+              className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
             >
               <Download className="h-3.5 w-3.5" />
               Export
@@ -237,23 +304,73 @@ function TimeDoctorEmployeePage() {
         }
       />
 
-      <div className="px-5 md:px-8 py-6 space-y-6">
-        {q.isLoading && <PageSkeleton />}
+      <div className="px-5 md:px-8 py-6 space-y-5">
+        <FetchingBar active={isBusy && !coldLoad} />
 
-        {q.isError && (
-          <div className="surface-card p-5">
-            <div className="font-medium">Unable to load employee details</div>
-            <div className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
-              {q.error instanceof Error ? q.error.message : "Unknown error"}
-            </div>
+        {statusBanner ? (
+          <div
+            className={
+              "rounded-md border px-3 py-2.5 text-[12px] flex items-center gap-2 " +
+              (statusBanner.tone === "error"
+                ? "border-destructive/40 bg-destructive/5 text-destructive"
+                : "border-border bg-muted/40 text-foreground")
+            }
+            role="status"
+            aria-live="polite"
+          >
+            {statusBanner.tone === "loading" ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+            ) : null}
+            <span>{statusBanner.text}</span>
+            {statusBanner.tone === "error" ? (
+              <button
+                onClick={() => q.refetch()}
+                className="ml-auto h-7 px-2.5 rounded-md bg-foreground text-background text-[11px] inline-flex items-center gap-1"
+              >
+                <RefreshCw className="h-3 w-3" /> Retry
+              </button>
+            ) : null}
           </div>
-        )}
+        ) : null}
 
-        {!q.isLoading && !q.isError && !data && (
+        {coldLoad ? (
+          <div className="space-y-4 animate-in fade-in duration-300">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="surface-card p-4 space-y-2">
+                  <div className="h-3 w-20 rounded-md bg-muted/60 animate-pulse" />
+                  <div className="h-7 w-16 rounded-md bg-muted/60 animate-pulse mt-2" />
+                </div>
+              ))}
+            </div>
+            <TableSkeleton rows={5} />
+          </div>
+        ) : q.isError && !data ? null : (
+          <div className="relative space-y-6">
+            {showingStaleRange ? (
+              <div
+                className="absolute inset-0 z-10 rounded-lg bg-background/50 backdrop-blur-[1px] pointer-events-none flex items-start justify-center pt-16"
+                aria-hidden
+              >
+                <span className="text-[12px] text-muted-foreground bg-paper border border-border px-3 py-1.5 rounded-full shadow-sm inline-flex items-center gap-1.5">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  Loading {formatRangeLabel(start, end)}…
+                </span>
+              </div>
+            ) : null}
+            <div
+              className={
+                showingStaleRange
+                  ? "space-y-6 opacity-55 pointer-events-none select-none transition-opacity duration-300"
+                  : "space-y-6 transition-opacity duration-300"
+              }
+            >
+
+        {!data && !coldLoad && !q.isError ? (
           <EmptyState title="No data" description="No response returned for this employee." />
-        )}
+        ) : null}
 
-        {data?.warnings?.length ? (
+        {data?.warnings?.length && !showingStaleRange ? (
           <div className="surface-card p-4">
             <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground font-medium mb-2">
               Warnings
@@ -544,6 +661,9 @@ function TimeDoctorEmployeePage() {
               </div>
             )}
           </>
+        )}
+            </div>
+          </div>
         )}
       </div>
     </div>
