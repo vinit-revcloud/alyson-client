@@ -4,12 +4,13 @@ import { fetchKpiDefinitions } from "@/lib/queries-ext";
 import { PageHeader, EmptyState } from "@/components/AppShell";
 import { PageSkeleton } from "@/components/Skeleton";
 import { HourlyActivityReport } from "@/components/HourlyActivityReport";
-import { Download, BarChart3, Calendar, Clock } from "lucide-react";
+import { DailyStakeholderReportsPanel } from "@/components/DailyStakeholderReportsPanel";
+import { Download, BarChart3, Calendar, Clock, Mail } from "lucide-react";
 import { useState } from "react";
 import { downloadCSV } from "@/lib/csv";
 import { toast } from "sonner";
 
-type ReportsTab = "kpis" | "hourly";
+type ReportsTab = "kpis" | "hourly" | "daily-email";
 
 export const Route = createFileRoute("/reports")({
   head: () => ({ meta: [{ title: "Reports — Alyson HR" }] }),
@@ -74,6 +75,19 @@ function ReportsPage() {
           </button>
           <button
             type="button"
+            onClick={() => setTab("daily-email")}
+            className={
+              "h-8 px-4 rounded-md text-[12px] font-medium border inline-flex items-center gap-1.5 " +
+              (tab === "daily-email"
+                ? "bg-foreground text-background border-foreground"
+                : "bg-paper border-border text-muted-foreground hover:text-foreground")
+            }
+          >
+            <Mail className="h-3.5 w-3.5" />
+            Daily email
+          </button>
+          <button
+            type="button"
             onClick={() => setTab("kpis")}
             className={
               "h-8 px-4 rounded-md text-[12px] font-medium border inline-flex items-center gap-1.5 " +
@@ -89,6 +103,8 @@ function ReportsPage() {
 
         {tab === "hourly" ? (
           <HourlyActivityReport />
+        ) : tab === "daily-email" ? (
+          <DailyStakeholderReportsPanel />
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-1.5">

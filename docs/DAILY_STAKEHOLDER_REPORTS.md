@@ -51,6 +51,15 @@ DAILY_REPORT_HOURS_BACK=24
 CRON_SECRET=your-long-random-secret
 ```
 
+## When emails arrive
+
+| Trigger | When |
+|---------|------|
+| **Automatic** | Every day **6:00 AM IST** (Vercel cron on production) |
+| **Manual test** | **Reports → Daily email → Send daily reports now** (HR / CEO / Super Admin) |
+
+The UI button uses the same ZIP as cron. Enter your server **send code** (`DAILY_REPORT_CRON_SECRET` or `DAILY_REPORT_UI_SEND_CODE`).
+
 ## Cron
 
 `vercel.json` — daily **06:00 IST**. Set `DAILY_REPORT_CRON_SECRET` and `CRON_SECRET` on Vercel to the same value.

@@ -48,7 +48,14 @@ After deploy, open **Vercel → Project → Cron Jobs** and confirm the job is l
 
 Vercel sends `Authorization: Bearer <CRON_SECRET>` on cron invocations when `CRON_SECRET` is set.
 
-## 4. Test production (manual)
+## 4. Test from the app (easiest)
+
+1. Deploy with env vars set.
+2. Open [https://alyson-client.vercel.app/reports](https://alyson-client.vercel.app/reports)
+3. Tab **Daily email** → enter send code (same as `CRON_SECRET`) → **Send daily reports now**
+4. Check `alysonclient@cintara.ai` and `thirumalai@cintara.ai` for the ZIP.
+
+## 5. Test production (curl)
 
 Replace `YOUR_CRON_SECRET` with the value from Vercel:
 
