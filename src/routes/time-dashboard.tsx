@@ -37,7 +37,7 @@ export type TimeDashboardSortField = "range" | "daily" | "weekly" | "monthly" | 
 
 const SORT_OPTIONS: Array<{ key: TimeDashboardSortField; label: string }> = [
   { key: "range", label: "Period" },
-  { key: "daily", label: "Daily" },
+  { key: "daily", label: "Today" },
   { key: "weekly", label: "Weekly" },
   { key: "monthly", label: "Cal. month" },
   { key: "name", label: "Name" },
@@ -73,15 +73,17 @@ function TimeDashboardPage() {
     queryKey: ["time-doctor-employees-table", appliedStart, appliedEnd],
     queryFn: () =>
       fetchTimeDoctorEmployeesTable({
-        data: { start: appliedStart, end: appliedEnd, day: appliedEnd },
+        data: { start: appliedStart, end: appliedEnd },
       }),
     enabled: canAccess,
   });
 
   const data = table.data as
     | {
-        company: { id: string; name: string };
+        company: { id: string; name: string; timeZone?: string; timeZoneLabel?: string };
         day: string;
+        timeZone?: string;
+        timeZoneLabel?: string;
         range?: { start: string; end: string };
         warnings: string[];
         employees: TimeDoctorEmployeeRow[];
@@ -274,7 +276,7 @@ function TimeDashboardPage() {
           <PageHeader
             eyebrow="People"
             title="Time Dashboard"
-            description={`Time Doctor — ${data?.company?.name ?? "…"}. Period = ${rangeLabel}. Daily / weekly / month columns use the end date (${activeRange.end}). Top 3 get gold, silver, and bronze by ${medalSortLabel}.`}
+            description={`Time Doctor — ${data?.company?.name ?? "…"}. Period = ${rangeLabel}. Today / weekly / month use ${data?.day ?? "today"} (${data?.timeZoneLabel ?? "company timezone"}). Top 3 get gold, silver, and bronze by ${medalSortLabel}.`}
             dense
             actions={
               <>
@@ -420,7 +422,7 @@ function TimeDashboardPage() {
                         onClick={() => applySort("daily")}
                         className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("daily")}`}
                       >
-                        Daily
+                        Today
                         {sortBy === "daily" ? (
                           sortDir === "asc" ? (
                             <ArrowUpAZ className="h-3 w-3" />

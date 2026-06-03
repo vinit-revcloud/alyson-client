@@ -9,7 +9,7 @@ The app refreshes the Time Doctor **access token** automatically when these env 
 | `OAUTH_CLIENT_ID` | OAuth app client id |
 | `OAUTH_CLIENT_SECRET` | OAuth app client secret |
 | `API_ACCESS_TOKEN` | Optional seed; refreshed on each cold start / before expiry |
-| `API_ACCESS_TOKEN_EXPIRES_AT` | Optional ISO date or unix seconds — proactive refresh before expiry |
+| `TIME_DOCTOR_TIMEZONE` | Optional IANA override (e.g. `America/Chicago`). Default: auto from TD `company_time_zone` |
 
 ## Behavior
 

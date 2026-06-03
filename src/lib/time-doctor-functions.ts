@@ -278,6 +278,217 @@ async function buildUserRollups(
   };
 }
 
+let cachedCompanyTimeZone: string | null = null;
+let cachedCompanyTimeZoneLabel: string | null = null;
+
+/** Time Doctor `company_time_zone` labels → IANA (handles US DST correctly). */
+const TD_ZONE_LABEL_TO_IANA: Record<string, string> = {
+  "(GMT-06:00) Central Time (US & Canada)": "America/Chicago",
+  "(GMT-05:00) Eastern Time (US & Canada)": "America/New_York",
+  "(GMT-08:00) Pacific Time (US & Canada)": "America/Los_Angeles",
+  "(GMT-07:00) Mountain Time (US & Canada)": "America/Denver",
+  "(GMT+05:30) India Standard Time": "Asia/Kolkata",
+  "(GMT+00:00) UTC": "UTC",
+};
+
+function ianaFromTimeDoctorLabel(label: string): string | null {
+  const trimmed = label.trim();
+  if (TD_ZONE_LABEL_TO_IANA[trimmed]) return TD_ZONE_LABEL_TO_IANA[trimmed];
+  if (/central time/i.test(trimmed)) return "America/Chicago";
+  if (/eastern time/i.test(trimmed)) return "America/New_York";
+  if (/pacific time/i.test(trimmed)) return "America/Los_Angeles";
+  if (/mountain time/i.test(trimmed)) return "America/Denver";
+  if (/india standard/i.test(trimmed)) return "Asia/Kolkata";
+  return null;
+}
+
+function ingestCompanyTimeZone(acc: Record<string, unknown>) {
+  const label = String(acc.company_time_zone ?? acc.companyTimeZone ?? "").trim();
+  if (label) cachedCompanyTimeZoneLabel = label;
+  const iana = label ? ianaFromTimeDoctorLabel(label) : null;
+  if (iana) cachedCompanyTimeZone = iana;
+}
+
+function timeDoctorTimezone(): string {
+  const envTz = process.env.TIME_DOCTOR_TIMEZONE?.trim();
+  if (envTz) return envTz;
+  if (cachedCompanyTimeZone) return cachedCompanyTimeZone;
+  return "America/Chicago";
+}
+
+/** Calendar "today" in the company Time Doctor timezone (matches TD dashboards). */
+export function timeDoctorTodayIso(ref: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: timeDoctorTimezone(),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(ref);
+}
+
+export function getTimeDoctorTimezoneLabel(): string {
+  return cachedCompanyTimeZoneLabel || timeDoctorTimezone();
+}
+
+function mergeSecondMaps(...maps: Array<Map<string, number>>): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const m of maps) {
+    for (const [userId, seconds] of m.entries()) {
+      out.set(userId, (out.get(userId) ?? 0) + (seconds ?? 0));
+    }
+  }
+  return out;
+}
+
+function parseWorklogUserId(item: Record<string, unknown>): string | null {
+  const raw = item.user_id ?? item.userId ?? item.user;
+  if (raw == null || raw === "") return null;
+  return String(raw);
+}
+
+function parseWorklogItemSeconds(item: Record<string, unknown>): number {
+  const raw =
+    item.length ??
+    item.total_seconds ??
+    item.totalSeconds ??
+    item.seconds ??
+    item.time ??
+    item.duration ??
+    0;
+  if (typeof raw === "string") {
+    if (/^\d+$/.test(raw.trim())) return Number.parseInt(raw, 10) || 0;
+    const parts = raw.split(":").map((p) => Number.parseInt(p, 10));
+    if (parts.length === 3 && parts.every((n) => Number.isFinite(n))) {
+      return parts[0]! * 3600 + parts[1]! * 60 + parts[2]!;
+    }
+    return Number.parseFloat(raw) || 0;
+  }
+  return Number(raw) || 0;
+}
+
+function sumPoorTimeWebsiteSeconds(row: Record<string, unknown>): number {
+  const pt = row.poor_time_website ?? row.poor_time ?? row.poorTime ?? null;
+  if (!pt || typeof pt !== "object") return 0;
+  let seconds = 0;
+  for (const v of Object.values(pt as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const spend = (v as { timeSpend?: number; time_spend?: number }).timeSpend ??
+      (v as { time_spend?: number }).time_spend ??
+      0;
+    seconds += Number.isFinite(Number(spend)) ? Number(spend) : 0;
+  }
+  return seconds;
+}
+
+async function listDailyPoorSecondsByUser(
+  companyId: string,
+  day: string,
+  opts?: { auth?: "auto_refresh" | "access_only" },
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  let offset = 0;
+  const limit = 200;
+
+  for (let i = 0; i < 2000; i++) {
+    const payload = await upstreamFetch<unknown>(`/companies/${companyId}/poortime`, {
+      params: {
+        start_date: day,
+        end_date: day,
+        user_offset: offset,
+        user_limit: limit,
+        _format: "json",
+      },
+      auth: opts?.auth,
+    });
+
+    const rows = Array.isArray(payload) ? payload : [];
+    for (const row of rows) {
+      if (!row || typeof row !== "object") continue;
+      const uid = parseWorklogUserId(row as Record<string, unknown>);
+      if (!uid) continue;
+      const seconds = sumPoorTimeWebsiteSeconds(row as Record<string, unknown>);
+      if (seconds > 0) out.set(uid, (out.get(uid) ?? 0) + seconds);
+    }
+
+    if (rows.length < limit) break;
+    offset += limit;
+  }
+
+  return out;
+}
+
+async function sumPoorSecondsForDayRange(
+  companyId: string,
+  rangeStart: string,
+  rangeEnd: string,
+  opts?: { auth?: "auto_refresh" | "access_only" },
+): Promise<Map<string, number>> {
+  const days = enumerateDays(rangeStart, rangeEnd);
+  const out = new Map<string, number>();
+  const concurrency = 6;
+  for (let i = 0; i < days.length; i += concurrency) {
+    const chunk = days.slice(i, i + concurrency);
+    const maps = await Promise.all(chunk.map((d) => listDailyPoorSecondsByUser(companyId, d, opts)));
+    for (const m of maps) {
+      for (const [userId, seconds] of m.entries()) {
+        out.set(userId, (out.get(userId) ?? 0) + seconds);
+      }
+    }
+  }
+  return out;
+}
+
+async function listDailyTrackedSecondsByUser(
+  companyId: string,
+  day: string,
+  opts?: { auth?: "auto_refresh" | "access_only" },
+): Promise<Map<string, number>> {
+  const [work, poor] = await Promise.all([
+    listDailyWorkSecondsByUser(companyId, day, opts),
+    listDailyPoorSecondsByUser(companyId, day, opts).catch(() => new Map<string, number>()),
+  ]);
+  return mergeSecondMaps(work, poor);
+}
+
+async function listWeekToDateTrackedSecondsByUser(
+  companyId: string,
+  day: string,
+  opts?: { auth?: "auto_refresh" | "access_only" },
+): Promise<Map<string, number>> {
+  const weekStart = weekStartIso(day);
+  const [work, poor] = await Promise.all([
+    sumWorkSecondsForDayRange(companyId, weekStart, day, opts),
+    sumPoorSecondsForDayRange(companyId, weekStart, day, opts).catch(() => new Map<string, number>()),
+  ]);
+  return mergeSecondMaps(work, poor);
+}
+
+async function listMonthToDateTrackedSecondsByUser(
+  companyId: string,
+  day: string,
+  opts?: { auth?: "auto_refresh" | "access_only" },
+): Promise<Map<string, number>> {
+  const monthStart = `${day.slice(0, 8)}01`;
+  const [work, poor] = await Promise.all([
+    sumWorkSecondsForDayRange(companyId, monthStart, day, opts),
+    sumPoorSecondsForDayRange(companyId, monthStart, day, opts).catch(() => new Map<string, number>()),
+  ]);
+  return mergeSecondMaps(work, poor);
+}
+
+async function listTrackedSecondsByUserForRange(
+  companyId: string,
+  rangeStart: string,
+  rangeEnd: string,
+  opts?: { auth?: "auto_refresh" | "access_only" },
+): Promise<Map<string, number>> {
+  const [work, poor] = await Promise.all([
+    listWorkSecondsByUserForRange(companyId, rangeStart, rangeEnd, opts),
+    sumPoorSecondsForDayRange(companyId, rangeStart, rangeEnd, opts).catch(() => new Map<string, number>()),
+  ]);
+  return mergeSecondMaps(work, poor);
+}
+
 function enumerateDays(start: string, end: string): string[] {
   const out: string[] = [];
   const s = new Date(start + "T00:00:00Z");
@@ -372,18 +583,19 @@ export const fetchTimeDoctorEmployeesTable = createServerFn({ method: "GET" })
   .inputValidator((data: unknown) => EmployeesTableInput.parse(data))
   .handler(async ({ data }) => {
     const defaults = defaultListRange();
-    const end = data.end ?? data.day ?? defaults.end;
+    const end = data.end ?? defaults.end;
     const start = data.start ?? defaults.start;
-    const day = end;
+    /** Daily / weekly / monthly always anchor to company TZ "today", not the period end date. */
+    const rollupDay = data.day ?? timeDoctorTodayIso();
     const period = clampRange(start, end);
     const company = await getCompany();
 
     const [usersR, dailyR, weeklyR, monthlyR, periodR] = await Promise.allSettled([
       listUsers(company.id, ),
-      listDailyWorkSecondsByUser(company.id, day, ),
-      listWeekToDateWorkSecondsByUser(company.id, day, ),
-      listMonthToDateWorkSecondsByUser(company.id, day, ),
-      listWorkSecondsByUserForRange(company.id, period.start, period.end, ),
+      listDailyTrackedSecondsByUser(company.id, rollupDay, ),
+      listWeekToDateTrackedSecondsByUser(company.id, rollupDay, ),
+      listMonthToDateTrackedSecondsByUser(company.id, rollupDay, ),
+      listTrackedSecondsByUserForRange(company.id, period.start, period.end, ),
     ]);
 
     const users = usersR.status === "fulfilled" ? usersR.value : [];
@@ -407,7 +619,9 @@ export const fetchTimeDoctorEmployeesTable = createServerFn({ method: "GET" })
 
     return {
       company,
-      day,
+      day: rollupDay,
+      timeZone: company.timeZone ?? timeDoctorTimezone(),
+      timeZoneLabel: company.timeZoneLabel ?? getTimeDoctorTimezoneLabel(),
       range: { start: period.start, end: period.end },
       warnings: [
         ...(period.clipped ? [`Range capped to last 366 days (requested ${start} → ${end}).`] : []),
@@ -456,7 +670,7 @@ async function buildDashboard(range: DashboardRange): Promise<TimeDoctorDashboar
       listWorklogs(range),
       listPoorTime(range),
       listAbsentLate(range),
-      listDailyWorkSecondsByUser(company.id, range.end),
+      listDailyTrackedSecondsByUser(company.id, timeDoctorTodayIso()),
     ]);
 
   const mergedUsers = new Map<string, { id: string; name: string; email: string; title: string }>();
@@ -863,19 +1077,32 @@ function coerceArray<T>(payload: unknown): T[] {
   return [];
 }
 
-async function getCompany(opts?: { auth?: "auto_refresh" | "access_only" }): Promise<{ id: string; name: string }> {
+async function getCompany(opts?: { auth?: "auto_refresh" | "access_only" }): Promise<{
+  id: string;
+  name: string;
+  timeZone?: string;
+  timeZoneLabel?: string;
+}> {
   const payload = await upstreamFetch<unknown>("/companies", { auth: opts?.auth });
   if (payload && typeof payload === "object") {
     const any = payload as Record<string, unknown>;
     const accounts = any.accounts;
     if (Array.isArray(accounts) && accounts.length > 0) {
       const acc = accounts[0] as Record<string, unknown>;
+      ingestCompanyTimeZone(acc);
       const id = acc.company_id ?? acc.companyId ?? acc.id;
       const name = acc.company_name ?? acc.companyName ?? acc.name;
-      if (id != null && name != null) return { id: String(id), name: String(name) };
+      if (id != null && name != null) {
+        return {
+          id: String(id),
+          name: String(name),
+          timeZone: timeDoctorTimezone(),
+          timeZoneLabel: getTimeDoctorTimezoneLabel(),
+        };
+      }
     }
   }
-  return { id: "unknown", name: "Company" };
+  return { id: "unknown", name: "Company", timeZone: timeDoctorTimezone(), timeZoneLabel: getTimeDoctorTimezoneLabel() };
 }
 
 async function listUsers(companyId?: string, opts?: { auth?: "auto_refresh" | "access_only" }): Promise<User[]> {
@@ -1190,13 +1417,9 @@ async function listDailyWorkSecondsByUser(
 
     const items = payload.worklogs?.items ?? [];
     for (const it of items) {
-      if (it.user_id == null) continue;
-      const id = String(it.user_id);
-      const secondsRaw = it.length ?? 0;
-      const seconds =
-        typeof secondsRaw === "string"
-          ? Number.parseInt(secondsRaw, 10) || 0
-          : Number(secondsRaw) || 0;
+      const id = parseWorklogUserId(it as Record<string, unknown>);
+      if (!id) continue;
+      const seconds = parseWorklogItemSeconds(it as Record<string, unknown>);
       out.set(id, (out.get(id) ?? 0) + seconds);
     }
 
@@ -1282,13 +1505,9 @@ async function listWorkSecondsByUserForRange(
 
     const items = payload.worklogs?.items ?? [];
     for (const it of items) {
-      if (it.user_id == null) continue;
-      const id = String(it.user_id);
-      const secondsRaw = it.length ?? 0;
-      const seconds =
-        typeof secondsRaw === "string"
-          ? Number.parseInt(secondsRaw, 10) || 0
-          : Number(secondsRaw) || 0;
+      const id = parseWorklogUserId(it as Record<string, unknown>);
+      if (!id) continue;
+      const seconds = parseWorklogItemSeconds(it as Record<string, unknown>);
       out.set(id, (out.get(id) ?? 0) + seconds);
     }
 
