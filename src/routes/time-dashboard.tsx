@@ -4,13 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { PageHeader, TableScroll, EmptyState } from "@/components/AppShell";
 import { PageSkeleton } from "@/components/Skeleton";
 import { TimeDashboardRangePicker } from "@/components/TimeDashboardRangePicker";
-import { fetchTimeDoctorEmployeesTable, type TimeDoctorEmployeeRow } from "@/lib/time-doctor-functions";
+import { fetchTimeDoctorEmployeesTable, fetchTimeDoctorMonthlyUnderHoursReport, type TimeDoctorEmployeeRow } from "@/lib/time-doctor-functions";
+import { downloadTimeDoctorUnderHoursPdf } from "@/lib/time-doctor-under-hours-pdf";
 import {
   defaultListRange,
   formatRangeLabel,
   isIsoDate,
 } from "@/lib/time-dashboard-range";
-import { ArrowDownAZ, ArrowUpAZ, Clock, Download, RefreshCw, AlertTriangle } from "lucide-react";
+import { ArrowDownAZ, ArrowUpAZ, Clock, Download, FileText, RefreshCw, AlertTriangle } from "lucide-react";
 import { downloadCSV } from "@/lib/csv";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -50,6 +51,8 @@ function TimeDashboardPage() {
   const [q, setQ] = useState("");
   const [sortBy, setSortBy] = useState<TimeDashboardSortField>("range");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [underHoursMonth, setUnderHoursMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [underHoursPdfLoading, setUnderHoursPdfLoading] = useState(false);
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const showingUserDetail = pathname.startsWith("/time-dashboard/") && pathname !== "/time-dashboard";
@@ -192,6 +195,26 @@ function TimeDashboardPage() {
     };
   }, [canAccess, employeeRollups, totalRangeHours, activeRange, data?.company?.name]);
 
+  useEffect(() => {
+    if (data?.day) setUnderHoursMonth(data.day.slice(0, 7));
+  }, [data?.day]);
+
+  const exportUnderHoursPdf = async () => {
+    if (!underHoursMonth) return toast.error("Pick a month");
+    setUnderHoursPdfLoading(true);
+    try {
+      const report = await fetchTimeDoctorMonthlyUnderHoursReport({
+        data: { month: underHoursMonth, thresholdHours: 35 },
+      });
+      downloadTimeDoctorUnderHoursPdf(report);
+      toast.success(`Under 35h weekly PDF downloaded (${report.monthLabel})`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate PDF");
+    } finally {
+      setUnderHoursPdfLoading(false);
+    }
+  };
+
   const exportCsv = () => {
     if (!employeeRollups.length) return toast.error("No employees to export");
     downloadCSV(`time-dashboard-${activeRange.start}-${activeRange.end}.csv`, employeeRollups.map((e) => {
@@ -300,6 +323,25 @@ function TimeDashboardPage() {
                 >
                   <Download className="h-3.5 w-3.5" />
                   Export
+                </button>
+                <label className="h-8 px-2 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted cursor-pointer">
+                  <span className="text-muted-foreground whitespace-nowrap">Month</span>
+                  <input
+                    type="month"
+                    value={underHoursMonth}
+                    onChange={(e) => setUnderHoursMonth(e.target.value)}
+                    className="bg-transparent text-xs outline-none w-[7.5rem]"
+                    aria-label="Month for under-hours weekly PDF"
+                  />
+                </label>
+                <button
+                  onClick={() => void exportUnderHoursPdf()}
+                  disabled={underHoursPdfLoading}
+                  className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
+                  title="Download PDF listing employees under 35 hours for each week of the selected month"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  {underHoursPdfLoading ? "Building PDF…" : "Under 35h PDF"}
                 </button>
               </>
             }

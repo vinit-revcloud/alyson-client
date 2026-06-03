@@ -1632,3 +1632,122 @@ export const fetchUserWorklogEntriesForRange = createServerFn({ method: "GET" })
     return { range, worklogs, poorTime };
   });
 
+const MonthSchema = z.string().regex(/^\d{4}-\d{2}$/);
+
+const MonthlyUnderHoursInput = z.object({
+  month: MonthSchema,
+  thresholdHours: z.number().min(1).max(168).optional(),
+});
+
+export type UnderHoursEmployee = {
+  email: string;
+  name: string;
+  hours: number;
+};
+
+export type UnderHoursWeek = {
+  weekNumber: number;
+  label: string;
+  range: { start: string; end: string };
+  underThreshold: UnderHoursEmployee[];
+};
+
+export type MonthlyUnderHoursReport = {
+  company: { id: string; name: string };
+  month: string;
+  monthLabel: string;
+  thresholdHours: number;
+  timeZone: string;
+  timeZoneLabel: string;
+  generatedAt: string;
+  weeks: UnderHoursWeek[];
+  warnings: string[];
+};
+
+function monthWeekRanges(yearMonth: string): Array<{ weekNumber: number; start: string; end: string }> {
+  const m = yearMonth.match(/^(\d{4})-(\d{2})$/);
+  if (!m) throw new Error("Invalid month; use YYYY-MM");
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) throw new Error("Invalid month");
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const weeks: Array<{ weekNumber: number; start: string; end: string }> = [];
+  for (let weekNumber = 1, day = 1; day <= lastDay; weekNumber++) {
+    const weekEnd = Math.min(day + 6, lastDay);
+    weeks.push({
+      weekNumber,
+      start: `${yearMonth}-${String(day).padStart(2, "0")}`,
+      end: `${yearMonth}-${String(weekEnd).padStart(2, "0")}`,
+    });
+    day = weekEnd + 1;
+  }
+  return weeks;
+}
+
+function formatMonthLabel(yearMonth: string): string {
+  const [y, mo] = yearMonth.split("-").map(Number);
+  return new Date(Date.UTC(y, mo - 1, 1)).toLocaleString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** Monthly report: Week 1–5 chunks with employees under a weekly hour threshold. */
+export const fetchTimeDoctorMonthlyUnderHoursReport = createServerFn({ method: "GET" })
+  .inputValidator((data: unknown) => MonthlyUnderHoursInput.parse(data))
+  .handler(async ({ data }) => {
+    const thresholdHours = data.thresholdHours ?? 35;
+    const company = await getCompany();
+    const weeks = monthWeekRanges(data.month);
+    const warnings: string[] = [];
+
+    let users: Awaited<ReturnType<typeof listUsers>> = [];
+    try {
+      users = await listUsers(company.id);
+    } catch (e) {
+      warnings.push(`users: ${String(e)}`);
+    }
+
+    const weekResults: UnderHoursWeek[] = [];
+    for (const w of weeks) {
+      let secondsMap = new Map<string, number>();
+      try {
+        secondsMap = await listTrackedSecondsByUserForRange(company.id, w.start, w.end);
+      } catch (e) {
+        warnings.push(`${w.start} → ${w.end}: ${String(e)}`);
+      }
+
+      const underThreshold = users
+        .map((u) => {
+          const seconds = secondsMap.get(u.id) ?? 0;
+          return {
+            email: (u.email || "").trim(),
+            name: (u.name || u.email || "").trim(),
+            hours: seconds / 3600,
+          };
+        })
+        .filter((e) => e.email && e.hours < thresholdHours)
+        .sort((a, b) => a.hours - b.hours || a.email.localeCompare(b.email));
+
+      weekResults.push({
+        weekNumber: w.weekNumber,
+        label: `Week ${w.weekNumber}`,
+        range: { start: w.start, end: w.end },
+        underThreshold,
+      });
+    }
+
+    return {
+      company: { id: company.id, name: company.name },
+      month: data.month,
+      monthLabel: formatMonthLabel(data.month),
+      thresholdHours,
+      timeZone: company.timeZone ?? timeDoctorTimezone(),
+      timeZoneLabel: company.timeZoneLabel ?? getTimeDoctorTimezoneLabel(),
+      generatedAt: new Date().toISOString(),
+      weeks: weekResults,
+      warnings: warnings.slice(0, 8),
+    } satisfies MonthlyUnderHoursReport;
+  });
+
