@@ -7,6 +7,7 @@ import { TimeDashboardGate } from "@/components/TimeDashboardGate";
 import { fetchWeeklyPacingReport } from "@/lib/time-doctor-functions";
 import { formatRangeLabel } from "@/lib/time-dashboard-range";
 import {
+  isFridayOrLater,
   PACING_STATUS_LABEL,
   sortPacingRows,
   type WeeklyPacingRow,
@@ -52,7 +53,7 @@ function WeeklyPacingPage() {
   const [pdfLoading, setPdfLoading] = useState(false);
 
   const q = useQuery({
-    queryKey: ["weekly-pacing-report"],
+    queryKey: ["weekly-pacing-report", "pace-mon-thu-plus-avg-v7"],
     queryFn: () => fetchWeeklyPacingReport({ data: { targetHours: 35 } }),
     enabled: canAccess,
     staleTime: 60_000,
@@ -122,9 +123,11 @@ function WeeklyPacingPage() {
         email: r.email,
         name: r.name,
         hours_worked: r.hoursWorked.toFixed(2),
+        avg_daily_pace_mon_thu: r.avgDailyPace.toFixed(2),
+        projected_pace: r.projectedPace.toFixed(2),
+        pace_vs_target: r.paceDelta.toFixed(2),
         hours_remaining: r.hoursRemaining.toFixed(2),
         hours_over_target: r.hoursOver.toFixed(2),
-        hours_expected_by_now: r.hoursExpected.toFixed(2),
         pace_delta: r.paceDelta.toFixed(2),
         remaining_work_days: r.remainingWorkDays,
         required_hours_per_day: r.requiredHoursPerDay.toFixed(2),
@@ -232,8 +235,9 @@ function WeeklyPacingPage() {
             </div>
 
             <p className="text-[12px] text-muted-foreground leading-relaxed max-w-4xl">
-              All employees for the current week. <strong className="text-emerald-700 dark:text-emerald-300">Green rows</strong> have
-              reached {report.targetHours}h. Click column headers to sort ascending or descending.
+              <strong>Hours</strong> = logged so far (includes Friday on Fri). <strong>Pace</strong> = Mon–Thu total + Mon–Thu average.
+              Mon–Thu example: <strong>7h</strong> → <strong>14h</strong>. Friday: compare actual hours vs Mon–Thu projection (e.g. worked <strong>40.79h</strong>, pace <strong>46.70h</strong>).
+              {" "}<strong className="text-emerald-700 dark:text-emerald-300">Green rows</strong> have already reached {report.targetHours}h.
             </p>
 
             {report.warnings.length ? (
@@ -245,7 +249,7 @@ function WeeklyPacingPage() {
             ) : null}
 
             <TableScroll>
-              <div className="surface-card overflow-hidden min-w-[1180px]">
+              <div className="surface-card overflow-hidden min-w-[1240px]">
                 <table className="ops-table w-full">
                   <thead>
                     <tr>
@@ -272,6 +276,17 @@ function WeeklyPacingPage() {
                       <th align="right">
                         <button
                           type="button"
+                          onClick={() => applySort("avgDailyPace")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("avgDailyPace")}`}
+                          title="Average daily hours Mon–Thu"
+                        >
+                          Avg/day
+                          <SortIcon field="avgDailyPace" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
                           onClick={() => applySort("hoursRemaining")}
                           className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("hoursRemaining")}`}
                         >
@@ -292,21 +307,16 @@ function WeeklyPacingPage() {
                       <th align="right">
                         <button
                           type="button"
-                          onClick={() => applySort("hoursExpected")}
-                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("hoursExpected")}`}
-                        >
-                          Expected
-                          <SortIcon field="hoursExpected" />
-                        </button>
-                      </th>
-                      <th align="right">
-                        <button
-                          type="button"
-                          onClick={() => applySort("paceDelta")}
-                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("paceDelta")}`}
+                          onClick={() => applySort("projectedPace")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("projectedPace")}`}
+                          title={
+                            report && isFridayOrLater(report.today, report.week.start)
+                              ? "Mon–Thu total + Mon–Thu avg (compare to actual week hours)"
+                              : "Hours + daily average (next workday)"
+                          }
                         >
                           Pace
-                          <SortIcon field="paceDelta" />
+                          <SortIcon field="projectedPace" />
                         </button>
                       </th>
                       <th align="right">
@@ -361,6 +371,9 @@ function WeeklyPacingPage() {
                           >
                             {r.hoursWorked.toFixed(2)}h
                           </td>
+                          <td align="right" className="font-mono tabular-nums text-muted-foreground">
+                            {r.avgDailyPace.toFixed(2)}h
+                          </td>
                           <td align="right" className="font-mono tabular-nums font-medium">
                             {r.metTarget ? (
                               <span className="text-muted-foreground">—</span>
@@ -377,15 +390,16 @@ function WeeklyPacingPage() {
                               <span className="text-muted-foreground">—</span>
                             )}
                           </td>
-                          <td align="right" className="font-mono tabular-nums text-muted-foreground">
-                            {r.hoursExpected.toFixed(2)}h
-                          </td>
                           <td
                             align="right"
-                            className={`font-mono tabular-nums ${r.paceDelta < 0 ? "text-orange-700 dark:text-orange-300" : "text-emerald-700 dark:text-emerald-300"}`}
+                            className={`font-mono tabular-nums font-semibold ${r.projectedPace >= (report?.targetHours ?? 35) ? "text-emerald-700 dark:text-emerald-300" : "text-orange-700 dark:text-orange-300"}`}
+                            title={
+                              report && isFridayOrLater(report.today, report.week.start)
+                                ? `Mon–Thu projection · worked ${r.hoursWorked.toFixed(2)}h · ${r.paceDelta >= 0 ? "+" : ""}${r.paceDelta.toFixed(2)}h vs ${report.targetHours}h`
+                                : `${r.paceDelta >= 0 ? "+" : ""}${r.paceDelta.toFixed(2)}h vs ${report?.targetHours ?? 35}h target`
+                            }
                           >
-                            {r.paceDelta >= 0 ? "+" : ""}
-                            {r.paceDelta.toFixed(2)}h
+                            {r.projectedPace.toFixed(2)}h
                           </td>
                           <td align="right" className="font-mono tabular-nums text-muted-foreground">
                             {r.metTarget ? "—" : r.remainingWorkDays}

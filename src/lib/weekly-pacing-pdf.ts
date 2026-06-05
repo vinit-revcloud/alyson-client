@@ -41,7 +41,11 @@ function renderWeeklyPacingPdf(
   doc.setFontSize(9);
   doc.text(`${report.company.name}`, margin, 44);
   doc.text(`Week: ${weekLabel} (${report.timeZoneLabel})`, margin, 56);
-  doc.text(`Target: ${report.targetHours} hours/week · ${report.elapsedWorkDays}/${report.totalWorkDays} workdays elapsed`, margin, 68);
+  doc.text(
+    `Target: ${report.targetHours}h/week · Pace = Mon–Thu total + Mon–Thu avg · ${report.pacingSampleDays.length} sample day(s)`,
+    margin,
+    68,
+  );
   doc.text(`Generated: ${new Date(report.generatedAt).toLocaleString()}`, margin, 80);
 
   const kpiY = 96;
@@ -78,9 +82,9 @@ function renderWeeklyPacingPdf(
     head: [[
       "Employee",
       "Worked",
+      "Avg/day",
       "Remaining",
       "Over",
-      "Expected",
       "Pace",
       "Days left",
       "Req/day",
@@ -89,26 +93,26 @@ function renderWeeklyPacingPdf(
     body: rows.map((r) => [
       `${r.name}\n${r.email}`,
       `${r.hoursWorked.toFixed(2)}h`,
+      `${r.avgDailyPace.toFixed(2)}h`,
       r.metTarget ? "—" : `${r.hoursRemaining.toFixed(2)}h`,
       r.hoursOver > 0 ? `+${r.hoursOver.toFixed(2)}h` : "—",
-      `${r.hoursExpected.toFixed(2)}h`,
-      `${r.paceDelta >= 0 ? "+" : ""}${r.paceDelta.toFixed(2)}h`,
+      `${r.projectedPace.toFixed(2)}h`,
       r.metTarget ? "—" : String(r.remainingWorkDays),
       r.metTarget ? "—" : `${r.requiredHoursPerDay.toFixed(2)}h`,
       PACING_STATUS_LABEL[r.status],
     ]),
-    styles: { fontSize: 7.5, cellPadding: 3, overflow: "linebreak", valign: "middle" },
-    headStyles: { fillColor: [245, 245, 245], textColor: 20, fontSize: 8, fontStyle: "bold" },
+    styles: { fontSize: 7, cellPadding: 3, overflow: "linebreak", valign: "middle" },
+    headStyles: { fillColor: [245, 245, 245], textColor: 20, fontSize: 7.5, fontStyle: "bold" },
     columnStyles: {
-      0: { cellWidth: 150 },
-      1: { halign: "right", cellWidth: 52 },
-      2: { halign: "right", cellWidth: 52 },
+      0: { cellWidth: 128 },
+      1: { halign: "right", cellWidth: 44 },
+      2: { halign: "right", cellWidth: 44 },
       3: { halign: "right", cellWidth: 48 },
-      4: { halign: "right", cellWidth: 52 },
-      5: { halign: "right", cellWidth: 48 },
-      6: { halign: "right", cellWidth: 42 },
-      7: { halign: "right", cellWidth: 48 },
-      8: { halign: "center", cellWidth: 62 },
+      4: { halign: "right", cellWidth: 40 },
+      5: { halign: "right", cellWidth: 46 },
+      6: { halign: "right", cellWidth: 38 },
+      7: { halign: "right", cellWidth: 44 },
+      8: { halign: "center", cellWidth: 54 },
     },
     didParseCell: (data) => {
       if (data.section !== "body") return;
@@ -120,10 +124,11 @@ function renderWeeklyPacingPdf(
       data.cell.styles.textColor = style.text;
 
       if (data.column.index === 5) {
-        data.cell.styles.textColor = row.paceDelta < 0 ? [194, 65, 12] : [4, 120, 87];
+        data.cell.styles.textColor =
+          row.projectedPace >= report.targetHours ? [4, 120, 87] : [194, 65, 12];
         data.cell.styles.fontStyle = "bold";
       }
-      if (data.column.index === 3 && row.hoursOver > 0) {
+      if (data.column.index === 4 && row.hoursOver > 0) {
         data.cell.styles.textColor = [4, 120, 87];
         data.cell.styles.fontStyle = "bold";
       }

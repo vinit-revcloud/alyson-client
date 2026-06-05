@@ -1916,18 +1916,44 @@ export const fetchWeeklyPacingReport = createServerFn({ method: "GET" })
       warnings.push(`users: ${String(e)}`);
     }
 
-    const metrics = computeWeekPacingMetrics({ weekStart, today: rollupDay, targetHours });
+    /** Pace always uses Mon–Thu of the ISO week (Monday anchor), even if weekly rollup uses Sunday start. */
+    const pacingWeekStart = weekStartIso(rollupDay);
+    const metrics = computeWeekPacingMetrics({
+      weekStart: pacingWeekStart,
+      today: rollupDay,
+      targetHours,
+    });
+    const sampleDays = metrics.pacingSampleDays;
+
+    await Promise.all(
+      sampleDays.map(async (day) => {
+        try {
+          await loadEmployeeTableRangeSeconds(company.id, day, day, rangeCache);
+        } catch (e) {
+          warnings.push(`daily-worklogs-${day}: ${String(e)}`);
+        }
+      }),
+    );
+
     const rows = users
-      .map((u) =>
-        buildPacingRow({
+      .map((u) => {
+        const daySeconds = sampleDays.map((day) => {
+          const cacheKey = `${company.id}:${day}:${day}`;
+          const dayMap = rangeCache.get(cacheKey);
+          return dayMap?.get(u.id) ?? 0;
+        });
+        return buildPacingRow({
           id: u.id,
           email: (u.email || "").trim(),
           name: (u.name || u.email || "").trim(),
           title: u.title ?? "",
           weeklySeconds: weekly.get(u.id) ?? 0,
+          dailyHours: daySeconds.map((s) => s / 3600),
           metrics,
-        }),
-      )
+          today: rollupDay,
+          weekStart: pacingWeekStart,
+        });
+      })
       .filter((r): r is NonNullable<typeof r> => r != null);
 
     return {
@@ -1936,7 +1962,8 @@ export const fetchWeeklyPacingReport = createServerFn({ method: "GET" })
       timeZone: company.timeZone ?? timeDoctorTimezone(),
       timeZoneLabel: company.timeZoneLabel ?? getTimeDoctorTimezoneLabel(),
       today: rollupDay,
-      week: { start: weekStart, end: metrics.weekEnd },
+      week: { start: pacingWeekStart, end: metrics.weekEnd },
+      pacingSampleDays: metrics.pacingSampleDays,
       elapsedWorkDays: metrics.elapsedWorkDays,
       totalWorkDays: metrics.totalWorkDays,
       remainingWorkDays: metrics.remainingWorkDays,
