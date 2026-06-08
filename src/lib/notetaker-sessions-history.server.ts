@@ -64,6 +64,13 @@ type BotIndexDoc = {
   notesKey?: string | null;
   finalizedAt?: string;
   lineCount?: number;
+  wordCount?: number;
+  transcriptHash?: string;
+  notesHash?: string | null;
+  cronLastHash?: string;
+  cronStablePasses?: number;
+  cronFinalized?: boolean;
+  cronFinalizedAt?: string;
 };
 
 function linesFromPlainTranscript(transcriptText: string) {

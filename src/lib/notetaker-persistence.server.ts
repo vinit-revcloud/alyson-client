@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import { CreateBucketCommand, HeadBucketCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { NotetakerSession, NotetakerTranscriptLine } from "@/lib/alyson-notetaker-functions";
 import { withResolvedMeetingTitle } from "@/lib/notetaker-session-title.server";
+import { loadBotIndexDoc } from "@/lib/notetaker-sessions-history.server";
 
 export type NotetakerBotIndexDoc = {
   version: number;
@@ -11,6 +13,45 @@ export type NotetakerBotIndexDoc = {
   notesKey?: string | null;
   finalizedAt?: string;
   lineCount?: number;
+  wordCount?: number;
+  transcriptHash?: string;
+  notesHash?: string | null;
+  /** Two consecutive cron runs with the same hash → stop polling this bot. */
+  cronLastHash?: string;
+  cronStablePasses?: number;
+  cronFinalized?: boolean;
+  cronFinalizedAt?: string;
+};
+
+/** Two consecutive 5-min cron runs with identical transcript hash (~10 min stable). */
+export function nextCronStabilityState(args: {
+  cronLastHash?: string;
+  cronStablePasses?: number;
+  currentHash: string;
+}) {
+  const matched = Boolean(args.cronLastHash) && args.cronLastHash === args.currentHash;
+  const cronStablePasses = matched ? (args.cronStablePasses ?? 0) + 1 : 0;
+  const cronFinalized = cronStablePasses >= 1;
+  return {
+    cronLastHash: args.currentHash,
+    cronStablePasses,
+    cronFinalized,
+    cronFinalizedAt: cronFinalized ? new Date().toISOString() : undefined,
+  };
+}
+
+export function contentHash(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+export type PersistMeetingResult = {
+  botId: string;
+  transcriptKey: string;
+  notesKey: string | null;
+  finalizedAt: string;
+  wroteTranscript: boolean;
+  wroteNotes: boolean;
+  skippedDuplicate: boolean;
 };
 
 function requireEnv(name: string) {
@@ -128,6 +169,27 @@ export async function persistMeetingToS3({
 
   const endedAt = new Date().toISOString();
   const transcript = composeTranscript(lines);
+  const transcriptText = transcript.transcriptText || "";
+  const transcriptHash = contentHash(transcriptText);
+  const notesMd = notes?.notesMd?.trim() || "";
+  const notesHash = notesMd ? contentHash(notesMd) : null;
+
+  const transcriptUnchanged =
+    Boolean(existingIndex?.transcriptHash) && existingIndex!.transcriptHash === transcriptHash;
+  const notesUnchanged =
+    !notesMd || (Boolean(existingIndex?.notesHash) && existingIndex!.notesHash === notesHash);
+
+  if (transcriptUnchanged && notesUnchanged) {
+    return {
+      botId: session.botId,
+      transcriptKey,
+      notesKey: existingIndex?.notesKey ?? null,
+      finalizedAt: existingIndex?.finalizedAt || endedAt,
+      wroteTranscript: false,
+      wroteNotes: false,
+      skippedDuplicate: true,
+    };
+  }
 
   const metadata = {
     "x-amz-meta-session-id": session.botId, // we only have botId in this app; backend can map to uuid later
@@ -137,30 +199,35 @@ export async function persistMeetingToS3({
     "x-amz-meta-ended-at": endedAt,
   } as Record<string, string>;
 
-  // 1) Upload to S3 (write-on-finish)
-  await s3().send(
-    new PutObjectCommand({
-      Bucket: bucket,
-      Key: transcriptKey,
-      Body: transcript.transcriptText || "",
-      ContentType: "text/plain; charset=utf-8",
-      Metadata: metadata,
-    }),
-  );
+  let wroteTranscript = false;
+  let wroteNotes = false;
 
-  if (notes?.notesMd) {
+  if (!transcriptUnchanged) {
+    await s3().send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: transcriptKey,
+        Body: transcriptText,
+        ContentType: "text/plain; charset=utf-8",
+        Metadata: metadata,
+      }),
+    );
+    wroteTranscript = true;
+  }
+
+  if (notesMd && !notesUnchanged) {
     await s3().send(
       new PutObjectCommand({
         Bucket: bucket,
         Key: notesKey,
-        Body: notes.notesMd,
+        Body: notesMd,
         ContentType: "text/markdown; charset=utf-8",
         Metadata: metadata,
       }),
     );
+    wroteNotes = true;
   }
 
-  // 2) Write a tiny index file for fast deletes by botId (avoid listing+head scanning).
   await s3().send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -172,9 +239,16 @@ export async function persistMeetingToS3({
           title: session.title,
           prefix,
           transcriptKey,
-          notesKey: notes?.notesMd ? notesKey : existingIndex?.notesKey ?? null,
+          notesKey: notesMd ? notesKey : existingIndex?.notesKey ?? null,
           finalizedAt: endedAt,
           lineCount: transcript.lineCount,
+          wordCount: transcript.wordCount,
+          transcriptHash,
+          notesHash: notesHash ?? existingIndex?.notesHash ?? null,
+          cronLastHash: existingIndex?.cronLastHash,
+          cronStablePasses: existingIndex?.cronStablePasses,
+          cronFinalized: existingIndex?.cronFinalized,
+          cronFinalizedAt: existingIndex?.cronFinalizedAt,
         },
         null,
         2,
@@ -187,8 +261,59 @@ export async function persistMeetingToS3({
   return {
     botId: session.botId,
     transcriptKey,
-    notesKey: notes?.notesMd ? notesKey : null,
+    notesKey: notesMd ? notesKey : existingIndex?.notesKey ?? null,
     finalizedAt: endedAt,
+    wroteTranscript,
+    wroteNotes,
+    skippedDuplicate: false,
+  };
+}
+
+/** Record cron stability on bot-index (no transcript rewrite). */
+export async function patchBotIndexCronStability(
+  botId: string,
+  currentHash: string,
+  existing?: NotetakerBotIndexDoc | null,
+): Promise<{ cronFinalized: boolean; cronStablePasses: number; newlyFinalized: boolean }> {
+  const index = existing ?? (await loadBotIndexDoc(botId));
+  if (!index?.prefix) {
+    return { cronFinalized: false, cronStablePasses: 0, newlyFinalized: false };
+  }
+
+  const wasFinalized = Boolean(index.cronFinalized);
+  const next = nextCronStabilityState({
+    cronLastHash: index.cronLastHash,
+    cronStablePasses: index.cronStablePasses,
+    currentHash,
+  });
+
+  const bucket = requireEnvAlias("AWS_S3_BUCKET", ["S3_BUCKET"]);
+  const botIndexKey = `alyson-notetaker/bot-index/${encodeURIComponent(botId)}.json`;
+
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: botIndexKey,
+      Body: JSON.stringify(
+        {
+          ...index,
+          ...next,
+          cronFinalizedAt: next.cronFinalized
+            ? index.cronFinalizedAt || next.cronFinalizedAt
+            : undefined,
+        },
+        null,
+        2,
+      ),
+      ContentType: "application/json; charset=utf-8",
+      Metadata: { kind: "alyson-notetaker-bot-index", botid: String(botId) },
+    }),
+  );
+
+  return {
+    cronFinalized: next.cronFinalized,
+    cronStablePasses: next.cronStablePasses,
+    newlyFinalized: next.cronFinalized && !wasFinalized,
   };
 }
 

@@ -7,6 +7,7 @@ import type {
 } from "@/lib/alyson-notetaker-functions";
 import { getPersistedSession, persistSession } from "@/lib/notetaker-datastore.server";
 import { autoPersistEndedMeetingToS3, maybeCheckpointTranscriptToS3 } from "@/lib/notetaker-auto-persist.server";
+import { composeTranscript } from "@/lib/notetaker-persistence.server";
 import { withResolvedMeetingTitle } from "@/lib/notetaker-session-title.server";
 import { loadPersistedSessionPayloadFromS3 } from "@/lib/notetaker-sessions-history.server";
 import { notetakerUpstream } from "@/lib/notetaker-upstream.server";
@@ -101,9 +102,9 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
 
       const fromS3 = await loadPersistedSessionPayloadFromS3(data.botId);
       if (fromS3) {
-        const upstreamCount = typed.lines.length;
-        const s3Count = fromS3.lines.length;
-        if (s3Count > upstreamCount) typed.lines = fromS3.lines;
+        const upstreamText = composeTranscript(typed.lines).transcriptText;
+        const s3Text = composeTranscript(fromS3.lines).transcriptText;
+        if (s3Text.length > upstreamText.length) typed.lines = fromS3.lines;
         if (!typed.notesMd && fromS3.notesMd) {
           typed.notesMd = fromS3.notesMd;
           typed.notesModel = fromS3.notesModel;
@@ -166,7 +167,7 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
               typed.notesMd = auto.notesMd;
               typed.notesModel = auto.notesModel;
             }
-          } else if (auto.skipped === "already_in_s3") {
+          } else if (auto.skipped === "unchanged" || auto.skipped === "already_in_s3") {
             typed.persistedInS3 = true;
             typed.session = { ...typed.session, status: typed.session.status || "persisted" };
           }

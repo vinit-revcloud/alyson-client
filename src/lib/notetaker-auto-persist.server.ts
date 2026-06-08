@@ -1,14 +1,9 @@
 import type { NotetakerSession, NotetakerTranscriptLine } from "@/lib/alyson-notetaker-functions";
 import { generateNotetakerNotes } from "@/lib/alyson-notetaker-functions";
-import { composeTranscript, persistMeetingToS3 } from "@/lib/notetaker-persistence.server";
+import { composeTranscript, contentHash, persistMeetingToS3 } from "@/lib/notetaker-persistence.server";
 import { withResolvedMeetingTitle } from "@/lib/notetaker-session-title.server";
 import { generateSmartMeetingNotes } from "@/lib/notetaker-smart-notes";
-import {
-  isMeetingPersistedInS3,
-  loadBotIndexDoc,
-  loadPersistedSessionPayloadFromS3,
-  mergeNotetakerSessions,
-} from "@/lib/notetaker-sessions-history.server";
+import { loadBotIndexDoc, mergeNotetakerSessions } from "@/lib/notetaker-sessions-history.server";
 import { registerScheduledBotInSessionsCatalog } from "@/lib/notetaker-scheduled-catalog.server";
 import { getNotetakerSessionsIndexFromS3, putNotetakerSessionsIndexToS3 } from "@/lib/notetaker-sessions-s3.server";
 
@@ -75,8 +70,12 @@ export type AutoPersistResult = {
   notesModel?: string;
 };
 
-const checkpointThrottle = new Map<string, { at: number; lineCount: number }>();
-const CHECKPOINT_MIN_MS = 25_000;
+const checkpointThrottle = new Map<string, { at: number; hash: string }>();
+
+function checkpointMinMs() {
+  const n = Number(process.env.NOTETAKER_CHECKPOINT_MIN_MS || 10_000);
+  return Number.isFinite(n) && n >= 3_000 ? Math.min(n, 60_000) : 10_000;
+}
 
 function endedStatus(status?: string) {
   return ["ended", "completed", "disconnected", "left", "finished", "persisted"].includes(
@@ -88,31 +87,40 @@ function endedStatus(status?: string) {
  * Incrementally write transcript to S3 while a meeting is live (or after upstream TTL).
  * Overwrites transcript.txt when line count grows; reuses bot-index prefix.
  */
+export type TranscriptPersistAction = "written" | "unchanged" | "skipped_empty" | "disabled";
+
 export async function maybeCheckpointTranscriptToS3(
   session: NotetakerSession,
   lines: NotetakerTranscriptLine[],
-): Promise<void> {
-  if (!autoPersistEnabled()) return;
+  options?: { bypassThrottle?: boolean },
+): Promise<TranscriptPersistAction> {
+  if (!autoPersistEnabled()) return "disabled";
 
   const botId = String(session.botId || "").trim();
-  if (!botId || !lines.length) return;
+  if (!botId || !lines.length) return "skipped_empty";
 
   const transcript = composeTranscript(lines);
-  if (!transcript.transcriptText.trim()) return;
+  const transcriptText = transcript.transcriptText.trim();
+  if (!transcriptText) return "skipped_empty";
 
-  const prev = checkpointThrottle.get(botId);
-  if (prev && Date.now() - prev.at < CHECKPOINT_MIN_MS && lines.length <= prev.lineCount) {
-    return;
+  const hash = contentHash(transcriptText);
+  const existingIndex = await loadBotIndexDoc(botId);
+  if (existingIndex?.transcriptHash === hash) {
+    checkpointThrottle.set(botId, { at: Date.now(), hash });
+    return "unchanged";
   }
 
-  let existingIndex = await loadBotIndexDoc(botId);
-  if (existingIndex?.lineCount != null && lines.length <= existingIndex.lineCount) {
-    checkpointThrottle.set(botId, { at: Date.now(), lineCount: lines.length });
-    return;
+  const prev = checkpointThrottle.get(botId);
+  if (
+    !options?.bypassThrottle &&
+    prev?.hash === hash &&
+    Date.now() - prev.at < checkpointMinMs()
+  ) {
+    return "unchanged";
   }
 
   const resolved = await withResolvedMeetingTitle(session);
-  await persistMeetingToS3({
+  const result = await persistMeetingToS3({
     session: resolved,
     lines,
     notes: null,
@@ -126,9 +134,17 @@ export async function maybeCheckpointTranscriptToS3(
           notesKey: existingIndex.notesKey,
           finalizedAt: existingIndex.finalizedAt,
           lineCount: existingIndex.lineCount,
+          wordCount: existingIndex.wordCount,
+          transcriptHash: existingIndex.transcriptHash,
+          notesHash: existingIndex.notesHash,
         }
       : null,
   });
+
+  if (result.skippedDuplicate) {
+    checkpointThrottle.set(botId, { at: Date.now(), hash });
+    return "unchanged";
+  }
 
   try {
     await registerScheduledBotInSessionsCatalog({
@@ -141,7 +157,8 @@ export async function maybeCheckpointTranscriptToS3(
     // best-effort catalog touch
   }
 
-  checkpointThrottle.set(botId, { at: Date.now(), lineCount: lines.length });
+  checkpointThrottle.set(botId, { at: Date.now(), hash });
+  return "written";
 }
 
 /**
@@ -168,35 +185,34 @@ export async function autoPersistEndedMeetingToS3(args: {
     return { persisted: false, skipped: "empty_transcript" };
   }
 
-  let existingIndex = await loadBotIndexDoc(botId).catch(() => null);
+  const existingIndex = await loadBotIndexDoc(botId).catch(() => null);
+  const session = await withResolvedMeetingTitle(args.session);
+  const transcriptHash = contentHash(transcript.transcriptText);
+
+  const notes =
+    args.force || args.forceNotes || !existingIndex?.notesKey
+      ? await resolveNotesForS3({
+          botId,
+          session,
+          lines: args.lines,
+          existingNotesMd: args.existingNotesMd,
+          existingNotesModel: args.existingNotesModel,
+          forceNotes: args.forceNotes ?? args.force,
+        })
+      : args.existingNotesMd?.trim()
+        ? { notesMd: args.existingNotesMd.trim(), model: args.existingNotesModel || "existing" }
+        : null;
 
   if (!args.force) {
-    try {
-      if (await isMeetingPersistedInS3(botId)) {
-        const s3Payload = await loadPersistedSessionPayloadFromS3(botId);
-        const s3LineCount = s3Payload?.lines?.length ?? 0;
-        if (args.lines.length <= s3LineCount) {
-          return { persisted: false, skipped: "already_in_s3" };
-        }
-        // More lines than S3 — update transcript (notes only when forced or missing).
-      }
-    } catch {
-      // proceed if S3 check fails (e.g. creds) — manual persist still available
+    const notesHash = notes?.notesMd ? contentHash(notes.notesMd) : null;
+    const transcriptUnchanged = existingIndex?.transcriptHash === transcriptHash;
+    const notesUnchanged = !notes?.notesMd || existingIndex?.notesHash === notesHash;
+    if (transcriptUnchanged && notesUnchanged) {
+      return { persisted: false, skipped: "unchanged" };
     }
   }
 
-  const session = await withResolvedMeetingTitle(args.session);
-
-  const notes = await resolveNotesForS3({
-    botId,
-    session,
-    lines: args.lines,
-    existingNotesMd: args.existingNotesMd,
-    existingNotesModel: args.existingNotesModel,
-    forceNotes: args.forceNotes ?? args.force,
-  });
-
-  await persistMeetingToS3({
+  const result = await persistMeetingToS3({
     session,
     lines: args.lines,
     notes: notes ? { notesMd: notes.notesMd, model: notes.model } : null,
@@ -210,9 +226,16 @@ export async function autoPersistEndedMeetingToS3(args: {
           notesKey: existingIndex.notesKey,
           finalizedAt: existingIndex.finalizedAt,
           lineCount: existingIndex.lineCount,
+          wordCount: existingIndex.wordCount,
+          transcriptHash: existingIndex.transcriptHash,
+          notesHash: existingIndex.notesHash,
         }
       : null,
   });
+
+  if (result.skippedDuplicate) {
+    return { persisted: false, skipped: "unchanged" };
+  }
 
   try {
     await appendSessionToS3Index({

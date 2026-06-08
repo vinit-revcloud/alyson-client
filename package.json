@@ -14,7 +14,8 @@
     "format": "prettier --write .",
     "seed:revcloud": "dotenv -e .env -- node scripts/seed-revcloud-overview.mjs",
     "inspect:orgchart": "npx dotenv-cli -e .env -- node scripts/inspect-orgchart-s3.mjs",
-    "export:org-roster": "node scripts/export-org-roster-sheet.mjs"
+    "export:org-roster": "node scripts/export-org-roster-sheet.mjs",
+    "cron:notetaker-transcripts": "node scripts/cron-notetaker-transcripts.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1043.0",

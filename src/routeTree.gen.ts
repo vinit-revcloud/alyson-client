@@ -44,6 +44,7 @@ import { Route as AlysonNotetakerUnifiedMeetingsRouteImport } from './routes/aly
 import { Route as AlysonNotetakerTasksRouteImport } from './routes/alyson-notetaker/tasks'
 import { Route as AlysonNotetakerCalendarRouteImport } from './routes/alyson-notetaker/calendar'
 import { Route as AlysonNotetakerAnalyticsRouteImport } from './routes/alyson-notetaker/analytics'
+import { Route as ApiCronNotetakerTranscriptsRouteImport } from './routes/api/cron/notetaker-transcripts'
 import { Route as ApiCronDailyReportsRouteImport } from './routes/api/cron/daily-reports'
 import { Route as ApiAnalyticsUnifiedMeetingsRouteImport } from './routes/api/analytics/unified-meetings'
 import { Route as AlysonNotetakerAnalyticsUnifiedMeetingsRouteImport } from './routes/alyson-notetaker/analytics.unified-meetings'
@@ -230,6 +231,12 @@ const AlysonNotetakerAnalyticsRoute =
     path: '/analytics',
     getParentRoute: () => AlysonNotetakerRouteRoute,
   } as any)
+const ApiCronNotetakerTranscriptsRoute =
+  ApiCronNotetakerTranscriptsRouteImport.update({
+    id: '/api/cron/notetaker-transcripts',
+    path: '/api/cron/notetaker-transcripts',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCronDailyReportsRoute = ApiCronDailyReportsRouteImport.update({
   id: '/api/cron/daily-reports',
   path: '/api/cron/daily-reports',
@@ -305,6 +312,7 @@ export interface FileRoutesByFullPath {
   '/alyson-notetaker/analytics/unified-meetings': typeof AlysonNotetakerAnalyticsUnifiedMeetingsRoute
   '/api/analytics/unified-meetings': typeof ApiAnalyticsUnifiedMeetingsRouteWithChildren
   '/api/cron/daily-reports': typeof ApiCronDailyReportsRoute
+  '/api/cron/notetaker-transcripts': typeof ApiCronNotetakerTranscriptsRoute
   '/api/analytics/unified-meetings/refresh': typeof ApiAnalyticsUnifiedMeetingsRefreshRoute
   '/api/analytics/unified-meetings/schedule-bots': typeof ApiAnalyticsUnifiedMeetingsScheduleBotsRoute
   '/api/analytics/unified-meetings/$meetingId/schedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdScheduleRoute
@@ -346,6 +354,7 @@ export interface FileRoutesByTo {
   '/alyson-notetaker/analytics/unified-meetings': typeof AlysonNotetakerAnalyticsUnifiedMeetingsRoute
   '/api/analytics/unified-meetings': typeof ApiAnalyticsUnifiedMeetingsRouteWithChildren
   '/api/cron/daily-reports': typeof ApiCronDailyReportsRoute
+  '/api/cron/notetaker-transcripts': typeof ApiCronNotetakerTranscriptsRoute
   '/api/analytics/unified-meetings/refresh': typeof ApiAnalyticsUnifiedMeetingsRefreshRoute
   '/api/analytics/unified-meetings/schedule-bots': typeof ApiAnalyticsUnifiedMeetingsScheduleBotsRoute
   '/api/analytics/unified-meetings/$meetingId/schedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdScheduleRoute
@@ -390,6 +399,7 @@ export interface FileRoutesById {
   '/alyson-notetaker/analytics/unified-meetings': typeof AlysonNotetakerAnalyticsUnifiedMeetingsRoute
   '/api/analytics/unified-meetings': typeof ApiAnalyticsUnifiedMeetingsRouteWithChildren
   '/api/cron/daily-reports': typeof ApiCronDailyReportsRoute
+  '/api/cron/notetaker-transcripts': typeof ApiCronNotetakerTranscriptsRoute
   '/api/analytics/unified-meetings/refresh': typeof ApiAnalyticsUnifiedMeetingsRefreshRoute
   '/api/analytics/unified-meetings/schedule-bots': typeof ApiAnalyticsUnifiedMeetingsScheduleBotsRoute
   '/api/analytics/unified-meetings/$meetingId/schedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdScheduleRoute
@@ -435,6 +445,7 @@ export interface FileRouteTypes {
     | '/alyson-notetaker/analytics/unified-meetings'
     | '/api/analytics/unified-meetings'
     | '/api/cron/daily-reports'
+    | '/api/cron/notetaker-transcripts'
     | '/api/analytics/unified-meetings/refresh'
     | '/api/analytics/unified-meetings/schedule-bots'
     | '/api/analytics/unified-meetings/$meetingId/schedule'
@@ -476,6 +487,7 @@ export interface FileRouteTypes {
     | '/alyson-notetaker/analytics/unified-meetings'
     | '/api/analytics/unified-meetings'
     | '/api/cron/daily-reports'
+    | '/api/cron/notetaker-transcripts'
     | '/api/analytics/unified-meetings/refresh'
     | '/api/analytics/unified-meetings/schedule-bots'
     | '/api/analytics/unified-meetings/$meetingId/schedule'
@@ -519,6 +531,7 @@ export interface FileRouteTypes {
     | '/alyson-notetaker/analytics/unified-meetings'
     | '/api/analytics/unified-meetings'
     | '/api/cron/daily-reports'
+    | '/api/cron/notetaker-transcripts'
     | '/api/analytics/unified-meetings/refresh'
     | '/api/analytics/unified-meetings/schedule-bots'
     | '/api/analytics/unified-meetings/$meetingId/schedule'
@@ -548,6 +561,7 @@ export interface RootRouteChildren {
   WorkspaceActivityRoute: typeof WorkspaceActivityRouteWithChildren
   ApiAnalyticsUnifiedMeetingsRoute: typeof ApiAnalyticsUnifiedMeetingsRouteWithChildren
   ApiCronDailyReportsRoute: typeof ApiCronDailyReportsRoute
+  ApiCronNotetakerTranscriptsRoute: typeof ApiCronNotetakerTranscriptsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -797,6 +811,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AlysonNotetakerAnalyticsRouteImport
       parentRoute: typeof AlysonNotetakerRouteRoute
     }
+    '/api/cron/notetaker-transcripts': {
+      id: '/api/cron/notetaker-transcripts'
+      path: '/api/cron/notetaker-transcripts'
+      fullPath: '/api/cron/notetaker-transcripts'
+      preLoaderRoute: typeof ApiCronNotetakerTranscriptsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/cron/daily-reports': {
       id: '/api/cron/daily-reports'
       path: '/api/cron/daily-reports'
@@ -979,6 +1000,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAnalyticsUnifiedMeetingsRoute:
     ApiAnalyticsUnifiedMeetingsRouteWithChildren,
   ApiCronDailyReportsRoute: ApiCronDailyReportsRoute,
+  ApiCronNotetakerTranscriptsRoute: ApiCronNotetakerTranscriptsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

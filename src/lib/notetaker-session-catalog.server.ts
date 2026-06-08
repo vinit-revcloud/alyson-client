@@ -66,7 +66,11 @@ export async function autoPersistUnifiedScheduledBots() {
 }
 
 let lastCatalogMaintenanceAt = 0;
-const CATALOG_MAINTENANCE_MIN_MS = 60_000;
+
+function catalogMaintenanceMinMs() {
+  const n = Number(process.env.NOTETAKER_CATALOG_MAINTENANCE_MIN_MS || 30_000);
+  return Number.isFinite(n) && n >= 10_000 ? Math.min(n, 120_000) : 30_000;
+}
 
 /** S3 persist + index merge (slow). Runs in background after fast session list returns. */
 export async function maintainNotetakerSessionsCatalog(sessions: NotetakerSession[]) {
@@ -81,18 +85,13 @@ export async function maintainNotetakerSessionsCatalog(sessions: NotetakerSessio
 
 export function scheduleNotetakerCatalogMaintenance(sessions: NotetakerSession[]) {
   const now = Date.now();
-  if (now - lastCatalogMaintenanceAt < CATALOG_MAINTENANCE_MIN_MS) return;
+  if (now - lastCatalogMaintenanceAt < catalogMaintenanceMinMs()) return;
   lastCatalogMaintenanceAt = now;
   void maintainNotetakerSessionsCatalog(sessions).catch(() => {});
 }
 
 export async function autoPersistDiscoverableSessions(sessions: NotetakerSession[]) {
-  const candidates = sessions.filter((s) => {
-    const botId = String(s.botId || "").trim();
-    if (!botId) return false;
-    const st = String(s.status || "").toLowerCase();
-    return st !== "persisted";
-  });
+  const candidates = sessions.filter((s) => Boolean(String(s.botId || "").trim()));
 
   await Promise.allSettled(
     candidates.map(async (s) => {
