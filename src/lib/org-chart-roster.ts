@@ -1,4 +1,6 @@
-import rosterCsv from "@/data/org-chart-roster.csv?raw";
+import { canonicalOfficialEmail } from "@/lib/cintara-email";
+
+export { canonicalOfficialEmail } from "@/lib/cintara-email";
 
 export type OrgChartRosterEntry = {
   name: string;
@@ -19,9 +21,6 @@ export type OrgChartRosterLookup = {
   emailByNormalizedName: Map<string, string>;
 };
 
-const OFFICIAL_EMAIL_DOMAIN = "cintara.ai";
-const LEGACY_EMAIL_DOMAIN = "revcloud.com";
-
 const MANAGER_EMAIL_SHORTCUTS: Record<string, string> = {
   bill: "alysonclient@cintara.ai",
   omer: "omer@cintara.ai",
@@ -32,31 +31,6 @@ const MANAGER_EMAIL_SHORTCUTS: Record<string, string> = {
   "atif ali": "atif@cintara.ai",
   sabtain: "sabtain@cintara.ai",
   kumail: "kumail@cintara.ai",
-};
-
-/** Legacy roster local-parts → current Cintara mailbox. */
-const EMAIL_LOCAL_ALIASES: Record<string, string> = {
-  omeraffan: "omer",
-  atifali: "atif",
-  bill: "alysonclient",
-  awais: "owais",
-  aneela: "anila",
-  bilal: "ahmadbilal",
-  "abdullah.saleem": "abdullahsaleem",
-  saleem: "abdullahsaleem",
-  "abdul.hanan": "abdulhanan",
-  hanan: "abdulhanan",
-  "abdullah.waseem": "abdullahwaseem",
-  "tehreem.riaz": "tehreem",
-  shumail: "shumailzehra",
-  "shumail.zehra": "shumailzehra",
-  ahmadfarooq: "ahmad.farooq",
-  hashimfarooq: "ahmad.farooq",
-  hashim: "ahmad.farooq",
-  "adil.ahmed": "adil",
-  adilahmed: "adil",
-  "farhan.tariq": "farhan",
-  "aryan.sawant": "aryan",
 };
 
 /** Hard-coded manager labels when roster email/name matching is ambiguous. */
@@ -101,19 +75,6 @@ function norm(s: string) {
 
 function normEmail(email: string) {
   return String(email || "").trim().toLowerCase();
-}
-
-/** Map legacy @revcloud.com roster/Time Doctor emails to @cintara.ai. */
-export function canonicalOfficialEmail(email: string): string {
-  const e = normEmail(email);
-  if (!e.includes("@")) return e;
-  const [local, domain] = e.split("@");
-  if (!local || !domain) return e;
-  const canonicalLocal = EMAIL_LOCAL_ALIASES[local] ?? local;
-  if (domain === LEGACY_EMAIL_DOMAIN || canonicalLocal !== local) {
-    return `${canonicalLocal}@${OFFICIAL_EMAIL_DOMAIN}`;
-  }
-  return e;
 }
 
 function emailLocal(email: string) {
@@ -280,25 +241,15 @@ export function resolveManagerForEmployeeEmail(
   return resolveManagersFromLabel(entry.managerLabel, lookup);
 }
 
-let cachedLookup: OrgChartRosterLookup | null = null;
-
-export function getOrgChartRosterLookup(): OrgChartRosterLookup {
-  if (!cachedLookup) {
-    cachedLookup = buildOrgChartRosterLookup(parseOrgChartRosterCsv(rosterCsv));
-  }
-  return cachedLookup;
-}
-
 export function attachManagerToPacingRow<T extends { email: string; name?: string }>(
   row: T,
-  lookup?: OrgChartRosterLookup,
+  lookup: OrgChartRosterLookup,
 ): T & OrgChartManagerInfo {
-  const l = lookup ?? getOrgChartRosterLookup();
-  let mgr = resolveManagerForEmployeeEmail(row.email, l);
+  let mgr = resolveManagerForEmployeeEmail(row.email, lookup);
   if (!mgr.managerEmail && row.name) {
-    const entry = findRosterEntryByName(row.name, l);
+    const entry = findRosterEntryByName(row.name, lookup);
     if (entry?.managerLabel) {
-      mgr = resolveManagersFromLabel(entry.managerLabel, l);
+      mgr = resolveManagersFromLabel(entry.managerLabel, lookup);
     }
   }
   return { ...row, ...mgr };

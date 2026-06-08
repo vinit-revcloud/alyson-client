@@ -1,95 +1,97 @@
-Employee ID,Name,Location,Personal Email,Official Email,Team,Manager
-rev_exec_bill,Bill,,,bill@revcloud.com,Leadership,
-rev_abdulhanan_revcloud_com_001,Abdul Hanan,Lahore,abdul.hanan.ch@live.com,abdulhanan@revcloud.com,Experiments,Omer
-rev_raheem_revcloud_com_002,Abdul Raheem,Lahore,ab.raheem.2187@gmail.com,raheem@revcloud.com,Checkout,Zaman
-rev_abdullahwaseem_revcloud_com_003,Abdullah Waseem,Lahore,syedabdullahwaseem@gmail.com,abdullahwaseem@revcloud.com,Experiments,Omer
-rev_ahmadbilal_revcloud_com_004,Ahmad Bilal,Lahore,ahmedbilalmian@gmail.com,ahmadbilal@revcloud.com,Acquire,Arman
-rev_ahmad_farooq_revcloud_com_005,Ahmad Hashim Farooq,Lahore,hashimfarooq777@gmail.com,ahmad.farooq@revcloud.com,Experiments,Omer
-rev_ahsanzafar_revcloud_com_006,Ahsan Zafar,Lahore,ahsanz639@gmail.com,ahsanzafar@revcloud.com,Checkout,Zaman
-rev_ali_hussnain_revcloud_com_007,Ali Hussnain,Lahore,ali.hussnainbabar@gmail.com,ali.hussnain@revcloud.com,Data Engineering,Kumail
-rev_ameer_hamza_revcloud_com_008,Ameer Hamza,Lahore,ameer.hamza.nu@gmail.com,ameer.hamza@revcloud.com,Experiments,Omer
-rev_ameer_revcloud_com_009,Ameer Hamza Data Engineer,Lahore,ameer692hamza@gmail.com,ameer@revcloud.com,Data Engineering,Kumail
-rev_anam_revcloud_com_010,Anam Shahzad,Lahore,anamshahzadkhan309@gmail.com,anam@revcloud.com,Data Engineering,Kumail
-rev_hareem_revcloud_com_011,Hareem Farooq,Lahore,hareemfarooq.qc@gmail.com,hareem@revcloud.com,Channel,Atif Ali
-rev_anila_revcloud_com_012,Anila Riaz,Lahore,anilashehzadi5@gmail.com,anila@revcloud.com,People Ops,Mohita
-rev_atifali_revcloud_com_013,Atif Ali,Lahore,SayyedMuhammadAtifAli@gmail.com,atifali@revcloud.com,Channel,Atif Ali
-rev_hadia_gull_revcloud_com_014,Hadia Gull,Lahore,hadiagull03@gmail.com,hadia.gull@revcloud.com,Checkout,Zaman
-rev_abdullahsaleem_revcloud_com_015,Abdullah Saleem,Lahore,ha.abdullah.saleem@gmail.com,abdullahsaleem@revcloud.com,Data Engineering,Kumail
-rev_hamza_revcloud_com_016,Hamza Hassan,Lahore,hamza.hassan.5348@gmail.com,hamza@revcloud.com,Experiments,Omer
-rev_hanzla_revcloud_com_017,Hanzla Saeed,Lahore,hanzlagc@gmail.com,hanzla@revcloud.com,Scrum Master,Bill
-rev_hassan_ali_revcloud_com_018,Hassan Ali,Lahore,pm.hassanali@gmail.com,hassan.ali@revcloud.com,Experiments,Omer
-rev_irtaza_revcloud_com_019,Irtaza Haider,Lahore,irtazahaider1214@gmail.com,irtaza@revcloud.com,Data Architect,Bill & Omer/Kumail
-rev_khuzaima_revcloud_com_020,Khuzaima Tofeeq,Lahore,tofeeqkhuzaima@gmail.com,khuzaima@revcloud.com,Experiments,Omer
-rev_meerab_revcloud_com_021,Meerab Ali,Lahore,meerabali4486@gmail.com,meerab@revcloud.com,Channel,Atif Ali
-rev_saba_revcloud_com_022,Saba Imran,Lahore,sabaimran1029@gmail.com,saba@revcloud.com,Channel,Atif Ali
-rev_minahil_revcloud_com_023,Minahil Tariq,Lahore,minahil923@gmail.com,minahil@revcloud.com,Checkout,Zaman
-rev_owais_revcloud_com_024,Muhammad Awais,Lahore,mowais5921@gmail.com,owais@revcloud.com,People Ops,Mohita
-rev_fawad_revcloud_com_025,Malik Fouad Waheed,Lahore,fouadwaheed@gmail.com,fawad@revcloud.com,UI,Bill & Omer
-rev_huzaifa_zahid_revcloud_com_026,Huzaifa Zahid,Lahore,huzaifazahid87@gmail.com,huzaifa.zahid@revcloud.com,Experiments,Omer
-rev_muhammad_revcloud_com_027,Mubashar Ali,Lahore,mubasharjaved3567@gmail.com,muhammad@revcloud.com,Checkout,Zaman
-rev_sheharyar_revcloud_com_028,Muhammad Sheharyar,Lahore,msheharyarqazi@gmail.com,sheharyar@revcloud.com,Data Engineering,Kumail
-rev_ahsan_javed_revcloud_com_029,Ahsan Javed,Lahore,Ahsan.javed2000@hotmail.com,ahsan.javed@revcloud.com,Channel,Atif Ali
-rev_uzair_revcloud_com_030,Uzair Imtiaz,Lahore,uzair.imtyaz@outlook.com,uzair@revcloud.com,Checkout,Zaman
-rev_usama_revcloud_com_031,Usama Mir,Lahore,usamamir666@gamil.com,usama@revcloud.com,Channel,Atif Ali
-rev_zaman_revcloud_com_032,Muhammad Zaman,Lahore,zamans510@gmail.com,zaman@revcloud.com,Checkout,Bill
-rev_omar_revcloud_com_033,Omar Asmar,Lahore,omarasmaryounas@gmail.com,omar@revcloud.com,People Ops,Mohita
-rev_omeraffan_revcloud_com_034,Muhammad Omer Affan,Lahore,omeraffan@outlook.com,omeraffan@revcloud.com,Data Architect,Bill
-rev_rameen_revcloud_com_035,Rameen Hamid,Lahore,rameenhamidd257@gmail.com,rameen@revcloud.com,Checkout,Zaman
-rev_salman_soomro_revcloud_com_036,Salman Soomro,Lahore,salmanakhtar2@gmail.com,salman.soomro@revcloud.com,Channel,Atif Ali
-rev_naveed_gillani_revcloud_com_037,Ahmed Naveed Gillani,Lahore,ahmednaveed344@gmail.com,naveed.gillani@revcloud.com,Channel,Atif Ali
-rev_rutaba_revcloud_com_038,Rutaba Afzaal,Lahore,rutabaafzal47@gmail.com,rutaba@revcloud.com,Acquire,
-rev_shanzay_revcloud_com_039,Shanzay Tafazzal,Lahore,shanzaytafazzal40@gmail.com,shanzay@revcloud.com,Acquire,
-rev_shumailzehra_revcloud_com_040,Shumail Zehra,Lahore,syedashumailzehra@gmail.com,shumailzehra@revcloud.com,Data Engineering,Kumail
-rev_kumail_revcloud_com_041,Syed M Kumail,Lahore,smkumail14@gmail.com,kumail@revcloud.com,Data Architect,Bill
-rev_talha_revcloud_com_042,Talha Shahid,Lahore,talha.cue@gmail.com,talha@revcloud.com,People Ops,Mohita
-rev_tehreem_revcloud_com_043,Tehreem Riaz,Lahore,tehreemriaz87@gmail.com,tehreem@revcloud.com,Data Engineering,Kumail
-rev_wisha_revcloud_com_044,Wisha Eman,Lahore,eman.wisha@gmail.com,wisha@revcloud.com,Experiments,Omer
-rev_aditya_revcloud_com_045,Aditya Joshi,Pune,joshiaditya0511@gmail.com,aditya@revcloud.com,Experiments,Omer
-rev_aaradhya_revcloud_com_046,Aaradhya Badal,Pune,aaradhya.badal.btech2022@sitpune.edu.in,aaradhya@revcloud.com,Acquire,Arman
-rev_arman_revcloud_com_047,Arman Verma,Pune,,arman@revcloud.com,Acquire,Bill
-rev_mohita_revcloud_com_048,Mohita Yadav,Pune,,mohita@revcloud.com,People Ops,Bill
-rev_bhupendra_contentcognition_net_049,Bhupen Patel,Pune,bhupen.patel505@gmail.com,bhupendra@contentcognition.net,Affiliate,Arman
-rev_yash_contentcognition_net_050,Yash Patel,Pune,ypat6988@gmail.com,yash@contentcognition.net,Acquire,Arman
-rev_sahil_revcloud_com_051,Sahil Divekar,Pune,sahil.divekar99@gmail.com,sahil@revcloud.com,Acquire,Arman
-rev_azhar_revcloud_com_052,Azhar Sayed,Pune,AzharSayed70@gmail.com,azhar@revcloud.com,Affiliate,Arman
-rev_piyush_revcloud_com_053,Piyush Parkhe,Pune,piyushparkhe@gmail.com,piyush@revcloud.com,Growth Team,Arman
-rev_thirumalai_revcloud_com_054,Thirumalainambi Maahraja,Pune,mthirumalai2905@gmail.com,thirumalai@revcloud.com,Experiments,Omer
-rev_om_podey_revcloud_com_055,Om Podey,Pune,ompodey@gmail.com,om.podey@revcloud.com,HomeLight,Arman
-rev_vyankatesh_revcloud_com_056,Vyankatesh Pete,Pune,vyankatesh.pete@gmail.com,vyankatesh@revcloud.com,Acquire,Arman
-rev_garima_revcloud_com_057,Garima Singh,Pune,garimasingh130197@gmail.com,garima@revcloud.com,People Ops,Mohita
-rev_bhumika_revcloud_com_058,Bhumikaben Rikhilkumar Kyada,Pune,bhumikagondaliya24@gmail.com,bhumika@revcloud.com,People Ops,Mohita
-rev_sakshi_revcloud_com_059,Sakshi Choudhary,Pune,choudharysakshi551@gmail.com,sakshi@revcloud.com,People Ops,Mohita
-rev_aditya_singh_revcloud_com_060,Aditya Singh,Pune,adityavishalsingh@gmail.com,aditya.singh@revcloud.com,People Ops,Mohita
-rev_saif_revcloud_com_061,Saif Tamboli,Pune,tambolisaif13@gmail.com,saif@revcloud.com,Affiliate,Arman
-rev_asmita_revcloud_com_062,Asmita Amritraj,Pune,asmitaamritraj@gmail.com,asmita@revcloud.com,Affiliate,Arman
-rev_sabtain_revcloud_com_063,Sabtain Ashiq,Bahawalpur,djsubtain@gmail.com,sabtain@revcloud.com,Sourcer,Mohita
-rev_rana_revcloud_com_064,Rana Ali,Bahawalpur,ranaalishabbir9@gmail.com,rana@revcloud.com,Sourcer,Sabtain
-rev_abdullah_revcloud_com_065,Abdullah Raheem,Bahawalpur,,abdullah@revcloud.com,Sourcer,Sabtain
-rev_adeel_revcloud_com_066,Adeel Shakir,Bahawalpur,adeelshakir356@gmail.com,adeel@revcloud.com,Sourcer,Sabtain
-rev_ahsan_revcloud_com_067,Ahsan Raza,Bahawalpur,malikahsanraza05@gmail.com,ahsan@revcloud.com,Sourcer,Sabtain
-rev_ali_revcloud_com_068,Ali Raza,Bahawalpur,,ali@revcloud.com,Sourcer,Sabtain
-rev_alisheeraz_revcloud_com_069,Ali Sheraz,Bahawalpur,,alisheeraz@revcloud.com,Sourcer,Sabtain
-rev_arooj_revcloud_com_070,Arooj Fatima,Bahawalpur,aroojf5366@gmail.com,arooj@revcloud.com,Sourcer,Sabtain
-rev_ayeshaiqbal_revcloud_com_071,Ayesha Iqbal,Bahawalpur,,ayeshaiqbal@revcloud.com,Sourcer,Sabtain
-rev_hina_revcloud_com_072,Hina Samreen,Bahawalpur,,hina@revcloud.com,Sourcer,Sabtain
-rev_husnain_revcloud_com_073,Husnain Ali,Bahawalpur,husnainali8087@gmail.com,husnain@revcloud.com,Sourcer,Sabtain
-rev_iqra_revcloud_com_074,Iqra Rafique,Bahawalpur,iqrasabtain043@gmail.com,iqra@revcloud.com,Sourcer,Sabtain
-rev_khawar_revcloud_com_075,Khawar Ali,Bahawalpur,khawarali971@gmail.com,khawar@revcloud.com,Sourcer,Sabtain
-rev_malik_revcloud_com_076,Malik Asif,Bahawalpur,malikasifchannar125@gmail.com,malik@revcloud.com,Sourcer,Sabtain
-rev_mudaser_revcloud_com_077,Mudassar Rafique,Bahawalpur,mudasersunny@gmail.com,mudaser@revcloud.com,Sourcer,Sabtain
-rev_muhammadsaqlain_revcloud_com_078,Muhammad Saqlain,Bahawalpur,msaqlain2900@gmail.com,muhammadsaqlain@revcloud.com,Sourcer,Sabtain
-rev_muhammadt_revcloud_com_079,Muhammad Tahreem,Bahawalpur,tahreem2567@gmail.com,muhammadt@revcloud.com,Sourcer,Sabtain
-rev_no_email_found_080,Naveed Ahmmad,Bahawalpur,,user80@revcloud.com,Sourcer,Sabtain
-rev_noor_revcloud_com_081,Noor Ul Aain,Bahawalpur,,noor@revcloud.com,Sourcer,Sabtain
-rev_rabia_revcloud_com_082,Rabia Saher,Bahawalpur,,rabia@revcloud.com,Sourcer,Sabtain
-rev_no_email_found_083,Rimsha Javed,Bahawalpur,,user83@revcloud.com,Sourcer,Sabtain
-rev_sami_revcloud_com_084,Sami Ullah,Bahawalpur,,sami@revcloud.com,Sourcer,Sabtain
-rev_shabanaali_revcloud_com_085,Shabana Ali,Bahawalpur,shabana.ali1342@gmail.com,shabanaali@revcloud.com,Sourcer,Sabtain
-rev_shumaila_revcloud_com_086,Shumaila Tahir,Bahawalpur,shumailaaa22@gmail.com,shumaila@revcloud.com,Sourcer,Sabtain
-rev_muhammadareeb_revcloud_com_087,Muhammad Areeb Abbas,Bahawalpur,areeb.abbas786@gmail.com,muhammadareeb@revcloud.com,Sourcer,Sabtain
-rev_muhammadkamran_revcloud_com_088,Muhammad Kamran,Bahawalpur,,muhammadkamran@revcloud.com,Sourcer,Sabtain
-rev_prashansa_chauhan_089,Prashansa Chauhan,Pune,,user89@revcloud.com,People Ops,Mohita
-rev_hamza_zafar_090,Hamza Zafar,Lahore,,user90@revcloud.com,Acquire,Arman
-rev_aryaman_singh_091,Aryaman Singh,Pune,,user91@revcloud.com,Affiliate,Yash
-rev_swapnil_thorat_092,Swapnil Thorat,Pune,,user92@revcloud.com,Channel,Bill
-rev_rohan_n_093,Rohan N,Pune,,user93@revcloud.com,Acquire,Om
+Employee ID,Name,Location,Personal Email,Official Email,Team,Manager,Active
+cint_exec_bill,Bill,,,alysonclient@cintara.ai,Leadership,,Yes
+cint_abdul_hanan_cintara_ai_001,Abdul Hanan,Lahore,abdul.hanan.ch@live.com,abdul.hanan@cintara.ai,Experiments,Omer,Yes
+cint_raheem_cintara_ai_002,Abdul Raheem,Lahore,ab.raheem.2187@gmail.com,raheem@cintara.ai,Checkout,Zaman,No
+cint_abdullah_waseem_cintara_ai_003,Abdullah Waseem,Lahore,syedabdullahwaseem@gmail.com,abdullah.waseem@cintara.ai,Experiments,Omer,Yes
+cint_bilal_cintara_ai_004,Ahmad Bilal Abdul Wahid,Lahore,ahmedbilalmian@gmail.com,bilal@cintara.ai,Acquire,Bill,Yes
+cint_hashim_cintara_ai_005,Ahmad Hashim Farooq,Lahore,hashimfarooq777@gmail.com,hashim@cintara.ai,Experiments,Omer,Yes
+cint_ahsan_cintara_ai_006,Ahsan Zafar Bloach,Lahore,ahsanz639@gmail.com,ahsan@cintara.ai,Checkout,Zaman,Yes
+cint_ali_hussnain_cintara_ai_007,Ali Hussnain,Lahore,ali.hussnainbabar@gmail.com,ali.hussnain@cintara.ai,Data Engineering,Omer,No
+cint_hamza_cintara_ai_008,Ameer Hamza,Lahore,ameer.hamza.nu@gmail.com,hamza@cintara.ai,Experiments,Omer,Yes
+cint_hamza_cintara_ai_009,Ameer Hamza Data Engineer,Lahore,ameer692hamza@gmail.com,hamza@cintara.ai,Data Engineering,Omer/Bill,Yes
+cint_anam_cintara_ai_010,Anam Shahzad,Lahore,anamshahzadkhan309@gmail.com,anam@cintara.ai,Data Engineering,Omer,Yes
+cint_hareem_cintara_ai_011,Hareem Farooq,Lahore,hareemfarooq.qc@gmail.com,hareem@cintara.ai,Channel,Atif Ali,Yes
+cint_anila_cintara_ai_012,Aneela Shahzadi,Lahore,anilashehzadi5@gmail.com,anila@cintara.ai,People Ops,Mohita,Yes
+cint_atif_cintara_ai_013,Atif Ali,Lahore,SayyedMuhammadAtifAli@gmail.com,atif@cintara.ai,Channel,Atif Ali,Yes
+cint_hadia_gull_cintara_ai_014,Hadia Gull,Lahore,hadiagull03@gmail.com,hadia.gull@cintara.ai,Checkout,Zaman,No
+cint_abdullah_saleem_cintara_ai_015,HAFIZ ABDULLAH SALEEM,Lahore,ha.abdullah.saleem@gmail.com,abdullah.saleem@cintara.ai,Data Engineering,Omer,Yes
+cint_hamza_cintara_ai_016,Hamza Hassan,Lahore,hamza.hassan.5348@gmail.com,hamza@cintara.ai,Experiments,Omer,Yes
+cint_hanzla_cintara_ai_017,Hanzla Saeed,Lahore,hanzlagc@gmail.com,hanzla@cintara.ai,Scrum Master,Bill,No
+cint_hassan_cintara_ai_018,Hassan Ali,Lahore,pm.hassanali@gmail.com,hassan@cintara.ai,Experiments,Omer,Yes
+cint_irtaza_cintara_ai_019,Irtaza Haider,Lahore,irtazahaider1214@gmail.com,irtaza@cintara.ai,Data Architect,Bill,Yes
+cint_khuzaima_cintara_ai_020,Khuzaima Tofeeq,Lahore,tofeeqkhuzaima@gmail.com,khuzaima@cintara.ai,Experiments,Omer,Yes
+cint_meerab_cintara_ai_021,Meerab Ali,Lahore,meerabali4486@gmail.com,meerab@cintara.ai,Channel,Atif Ali,No
+cint_saba_cintara_ai_022,Saba Imran,Lahore,sabaimran1029@gmail.com,saba@cintara.ai,Channel,Atif Ali,Yes
+cint_minahil_cintara_ai_023,Minahil Tariq,Lahore,minahil923@gmail.com,minahil@cintara.ai,Checkout,Zaman,No
+cint_awais_cintara_ai_024,Muhammad Awais,Lahore,mowais5921@gmail.com,awais@cintara.ai,People Ops,Mohita,Yes
+cint_fawad_cintara_ai_025,Malik Fouad Waheed,Lahore,fouadwaheed@gmail.com,fawad@cintara.ai,UI,Bill & Omer,Yes
+cint_huzaifa_cintara_ai_026,Muhammad Huzaifa Zahid,Lahore,huzaifazahid87@gmail.com,huzaifa@cintara.ai,Experiments,Omer,Yes
+cint_muhammad_cintara_ai_027,Muhammad Mubashar Ali,Lahore,mubasharjaved3567@gmail.com,muhammad@cintara.ai,Checkout,Zaman,No
+cint_sheharyar_cintara_ai_028,Muhammad Sheharyar,Lahore,msheharyarqazi@gmail.com,sheharyar@cintara.ai,Data Engineering,Omer,Yes
+cint_ahsanjaved_cintara_ai_029,Ahsan Javed,Lahore,Ahsan.javed2000@hotmail.com,ahsanjaved@cintara.ai,Channel,Atif Ali,Yes
+cint_uzair_cintara_ai_030,Muhammad Uzair Imtiaz,Lahore,uzair.imtyaz@outlook.com,uzair@cintara.ai,Checkout,Zaman,No
+cint_usama_cintara_ai_031,Usama Shahzad Mir,Lahore,usamamir666@gamil.com,usama@cintara.ai,Channel,Atif Ali,Yes
+cint_zaman_cintara_ai_032,Muhammad Zaman,Lahore,zamans510@gmail.com,zaman@cintara.ai,Checkout,Bill,Yes
+cint_omar_cintara_ai_033,Omar Asmar,Lahore,omarasmaryounas@gmail.com,omar@cintara.ai,People Ops,Mohita,No
+cint_omer_cintara_ai_034,Muhammad Omer Affan,Lahore,omeraffan@outlook.com,omer@cintara.ai,Data Architect,Bill,Yes
+cint_rameen_cintara_ai_035,Rameen Hamid,Lahore,rameenhamidd257@gmail.com,rameen@cintara.ai,Checkout,Zaman,No
+cint_salman_soomro_cintara_ai_036,Muhammad Salman Akhtar Soomro,Lahore,salmanakhtar2@gmail.com,salman.soomro@cintara.ai,Channel,Atif Ali,Yes
+cint_naveed_gillani_cintara_ai_037,Ahmed Naveed Gillani,Lahore,ahmednaveed344@gmail.com,naveed.gillani@cintara.ai,Channel,Atif Ali,No
+cint_rutaba_cintara_ai_038,Rutaba Afzaal,Lahore,rutabaafzal47@gmail.com,rutaba@cintara.ai,Acquire,,No
+cint_shanzay_cintara_ai_039,Shanzay Tafazzal,Lahore,shanzaytafazzal40@gmail.com,shanzay@cintara.ai,Acquire,,No
+cint_shumail_cintara_ai_040,Shumail Zehra,Lahore,syedashumailzehra@gmail.com,shumail@cintara.ai,Data Engineering,Omer,Yes
+cint_kumail_cintara_ai_041,Syed Muhammad Kumail,Lahore,smkumail14@gmail.com,kumail@cintara.ai,Data Architect,Bill,Yes
+cint_talha_cintara_ai_042,Talha Shahid,Lahore,talha.cue@gmail.com,talha@cintara.ai,People Ops,Mohita,No
+cint_tehreem_riaz_cintara_ai_043,Tehreem Riaz,Lahore,tehreemriaz87@gmail.com,tehreem.riaz@cintara.ai,Data Engineering,Omer,Yes
+cint_wisha_cintara_ai_044,Wisha Eman,Lahore,eman.wisha@gmail.com,wisha@cintara.ai,Experiments,Omer,No
+cint_aditya_cintara_ai_045,Joshi Aditya Ajay,Pune,joshiaditya0511@gmail.com,aditya@cintara.ai,Experiments,Omer,Yes
+cint_aaradhya_cintara_ai_046,Aaradhya Badal,Pune,aaradhya.badal.btech2022@sitpune.edu.in,aaradhya@cintara.ai,Acquire,Arman,Yes
+cint_arman_cintara_ai_047,Arman Verma,Pune,,arman@cintara.ai,Acquire,Bill,Yes
+cint_mohita_cintara_ai_048,Mohita Yadav,Pune,,mohita@cintara.ai,People Ops,Bill,Yes
+cint_bhupen_cintara_ai_049,Bhupendra Chainsingh Patel,Pune,bhupen.patel505@gmail.com,bhupen@cintara.ai,Affiliate,Arman,Yes
+cint_yash_cintara_ai_050,Yash Patel,Pune,ypat6988@gmail.com,yash@cintara.ai,Acquire,Arman,Yes
+cint_sahil_divekar_cintara_ai_051,Sahil Divekar,Pune,sahil.divekar99@gmail.com,sahil.divekar@cintara.ai,Acquire,Arman,Yes
+cint_azhar_cintara_ai_052,Azhar Ismail Sayed,Pune,AzharSayed70@gmail.com,azhar@cintara.ai,Affiliate,Arman,Yes
+cint_piyush_cintara_ai_053,Piyush Parkhe,Pune,piyushparkhe@gmail.com,piyush@cintara.ai,Growth Team,Arman,No
+cint_thirumalai_cintara_ai_054,YADAVAR THIRUMALAINAMBI MAHARAJA,Pune,mthirumalai2905@gmail.com,thirumalai@cintara.ai,Experiments,Omer,Yes
+cint_om_podey_cintara_ai_055,Om Prabhakar Podey,Pune,ompodey@gmail.com,om.podey@cintara.ai,HomeLight,Arman,Yes
+cint_vyankatesh_cintara_ai_056,Vyankatesh Dnyanoba Pete,Pune,vyankatesh.pete@gmail.com,vyankatesh@cintara.ai,Acquire,Arman,Yes
+cint_garima_cintara_ai_057,Garima Singh,Pune,garimasingh130197@gmail.com,garima@cintara.ai,People Ops,Mohita,Yes
+cint_bhumika_cintara_ai_058,Bhumikaben Rikhilkumar Kyada,Pune,bhumikagondaliya24@gmail.com,bhumika@cintara.ai,People Ops,Mohita,No
+cint_sakshi_cintara_ai_059,Sakshi Choudhary,Pune,choudharysakshi551@gmail.com,sakshi@cintara.ai,People Ops,Mohita,No
+cint_aditya_singh_cintara_ai_060,Aditya Singh,Pune,adityavishalsingh@gmail.com,aditya.singh@cintara.ai,People Ops,Mohita,No
+cint_saif_tamboli_cintara_ai_061,Saif Rafik Tamboli,Pune,tambolisaif13@gmail.com,saif.tamboli@cintara.ai,Affiliate,Arman,Yes
+cint_aryaman_cintara_ai_062,Aryaman Singh,Pune,,aryaman@cintara.ai,Affiliate,Arman,Yes
+cint_asmita_amritraj_cintara_ai_063,Asmita Amritraj,Pune,asmitaamritraj@gmail.com,asmita.amritraj@cintara.ai,Affiliate,Arman,Yes
+cint_sabtain_cintara_ai_064,Sabtain Ashiq,Bahawalpur,djsubtain@gmail.com,sabtain@cintara.ai,Sourcer,Mohita,Yes
+cint_rana_cintara_ai_065,Rana Ali,Bahawalpur,ranaalishabbir9@gmail.com,rana@cintara.ai,Sourcer,Sabtain,No
+cint_abdullah_cintara_ai_066,Abdullah Raheem,Bahawalpur,,abdullah@cintara.ai,Sourcer,Sabtain,Yes
+cint_adeel_cintara_ai_067,Adeel Shakir,Bahawalpur,adeelshakir356@gmail.com,adeel@cintara.ai,Sourcer,Sabtain,No
+cint_ahsan_cintara_ai_068,Ahsan Raza,Bahawalpur,malikahsanraza05@gmail.com,ahsan@cintara.ai,Sourcer,Sabtain,Yes
+cint_ali_cintara_ai_069,Ali Raza,Bahawalpur,,ali@cintara.ai,Sourcer,Sabtain,No
+cint_alisheeraz_cintara_ai_070,Ali Sheraz,Bahawalpur,,alisheeraz@cintara.ai,Sourcer,Sabtain,No
+cint_arooj_cintara_ai_071,Arooj Fatima,Bahawalpur,aroojf5366@gmail.com,arooj@cintara.ai,Sourcer,Sabtain,Yes
+cint_ayesha_cintara_ai_072,Ayesha Iqbal,Bahawalpur,,ayesha@cintara.ai,Sourcer,Sabtain,Yes
+cint_hina_cintara_ai_073,Hina Samreen,Bahawalpur,,hina@cintara.ai,Sourcer,Sabtain,No
+cint_husnain_cintara_ai_074,Husnain Ali,Bahawalpur,husnainali8087@gmail.com,husnain@cintara.ai,Sourcer,Sabtain,No
+cint_iqra_cintara_ai_075,Iqra Rafique,Bahawalpur,iqrasabtain043@gmail.com,iqra@cintara.ai,Sourcer,Sabtain,Yes
+cint_alysonclient_cintara_ai_076,Khawar Ali,Bahawalpur,khawarali971@gmail.com,alysonclient@cintara.ai,Sourcer,Sabtain,Yes
+cint_malik_cintara_ai_077,Malik Asif,Bahawalpur,malikasifchannar125@gmail.com,malik@cintara.ai,Sourcer,Sabtain,No
+cint_mudassar_cintara_ai_078,Mudassar Rafique,Bahawalpur,mudasersunny@gmail.com,mudassar@cintara.ai,Sourcer,Sabtain,Yes
+cint_saqlain_cintara_ai_079,Muhammad Saqlain,Bahawalpur,msaqlain2900@gmail.com,saqlain@cintara.ai,Sourcer,Sabtain,Yes
+cint_muhammad_tahreem_cintara_ai_080,Muhammad Tahreem,Bahawalpur,tahreem2567@gmail.com,muhammad.tahreem@cintara.ai,Sourcer,Sabtain,Yes
+cint_user81_cintara_ai_081,Naveed Ahmmad,Bahawalpur,,No email found,Sourcer,Sabtain,No
+cint_noor_cintara_ai_082,Noor Ul Aain,Bahawalpur,,noor@cintara.ai,Sourcer,Sabtain,No
+cint_rabia_cintara_ai_083,Rabia Saher,Bahawalpur,,rabia@cintara.ai,Sourcer,Sabtain,No
+cint_user84_cintara_ai_084,Rimsha Javed,Bahawalpur,,No email found,Sourcer,Sabtain,No
+cint_sami_cintara_ai_085,Sami Ullah,Bahawalpur,,sami@cintara.ai,Sourcer,Sabtain,No
+cint_shabanaali_cintara_ai_086,Shabana Ali,Bahawalpur,shabana.ali1342@gmail.com,shabanaali@cintara.ai,Sourcer,Sabtain,No
+cint_shumaila_cintara_ai_087,Shumaila Tahir,Bahawalpur,shumailaaa22@gmail.com,shumaila@cintara.ai,Sourcer,Sabtain,No
+cint_muhammadareeb_cintara_ai_088,Muhammad Areeb Abbas,Bahawalpur,areeb.abbas786@gmail.com,muhammadareeb@cintara.ai,Sourcer,Sabtain,No
+cint_muhammadkamran_cintara_ai_089,Muhammad Kamran,Bahawalpur,,muhammadkamran@cintara.ai,Sourcer,Sabtain,No
+cint_prashansa_cintara_ai_090,Prashansa Chauhan,Pune,,prashansa@cintara.ai,People Ops,Mohita,Yes
+cint_hamza_zafar_cintara_ai_091,Hamza Zafar,Lahore,,hamza.zafar@cintara.ai,Acquire,Arman,Yes
+cint_adil_cintara_ai_092,Adil Ahmed,Lahore,,adil@cintara.ai,Acquire,Bill,Yes
+cint_farhan_cintara_ai_093,Farhan Tariq,Lahore,,farhan@cintara.ai,HomeLight,Bill,Yes
+cint_aryan_cintara_ai_094,Aryan Sawant,Pune,,aryan@cintara.ai,Data Engineering,Omer,Yes
+cint_vinit_cintara_ai_095,Vinit Solanki,Pune,,vinit@cintara.ai,Data Engineering,Omer,Yes

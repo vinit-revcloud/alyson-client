@@ -11,6 +11,7 @@ import {
   filterPacingRows,
   isFridayOrLater,
   pacingTodayIso,
+  formatActiveLabel,
   PACING_STATUS_LABEL,
   resolvePacingRollupDay,
   sortPacingRows,
@@ -178,6 +179,7 @@ function WeeklyPacingPage() {
         pace_delta: r.paceDelta.toFixed(2),
         remaining_work_days: r.remainingWorkDays,
         required_hours_per_day: r.requiredHoursPerDay.toFixed(2),
+        active: formatActiveLabel(r.active),
         status: PACING_STATUS_LABEL[r.status],
       })),
     );
@@ -321,7 +323,7 @@ function WeeklyPacingPage() {
             ) : null}
 
             <TableScroll>
-              <div className="surface-card overflow-hidden min-w-[1420px]">
+              <div className="surface-card overflow-hidden min-w-[1500px]">
                 <table className="ops-table w-full">
                   <thead>
                     <tr>
@@ -424,6 +426,16 @@ function WeeklyPacingPage() {
                       <th align="left">
                         <button
                           type="button"
+                          onClick={() => applySort("active")}
+                          className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("active")}`}
+                        >
+                          Active
+                          <SortIcon field="active" />
+                        </button>
+                      </th>
+                      <th align="left">
+                        <button
+                          type="button"
                           onClick={() => applySort("status")}
                           className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("status")}`}
                         >
@@ -436,7 +448,7 @@ function WeeklyPacingPage() {
                   <tbody>
                     {rows.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="text-center text-muted-foreground py-8">
+                        <td colSpan={11} className="text-center text-muted-foreground py-8">
                           {searchQ.trim()
                             ? "No employees match your search."
                             : "No employees found for this week."}
@@ -500,6 +512,17 @@ function WeeklyPacingPage() {
                             ) : (
                               `${r.requiredHoursPerDay.toFixed(2)}h`
                             )}
+                          </td>
+                          <td>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                r.active
+                                  ? "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
+                                  : "bg-muted text-muted-foreground"
+                              }`}
+                            >
+                              {formatActiveLabel(r.active)}
+                            </span>
                           </td>
                           <td>
                             <span

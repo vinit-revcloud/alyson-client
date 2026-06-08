@@ -2,6 +2,7 @@ import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
 import { formatRangeLabel } from "@/lib/time-dashboard-range";
 import {
+  formatActiveLabel,
   PACING_STATUS_LABEL,
   type WeeklyPacingReport,
   type WeeklyPacingRow,
@@ -89,6 +90,7 @@ function renderWeeklyPacingPdf(
       "Pace",
       "Days left",
       "Req/day",
+      "Active",
       "Status",
     ]],
     body: rows.map((r) => [
@@ -103,6 +105,7 @@ function renderWeeklyPacingPdf(
       `${r.projectedPace.toFixed(2)}h`,
       r.metTarget ? "—" : String(r.remainingWorkDays),
       r.metTarget ? "—" : `${r.requiredHoursPerDay.toFixed(2)}h`,
+      formatActiveLabel(r.active),
       PACING_STATUS_LABEL[r.status],
     ]),
     styles: { fontSize: 7, cellPadding: 3, overflow: "linebreak", valign: "middle" },
@@ -117,23 +120,31 @@ function renderWeeklyPacingPdf(
       6: { halign: "right", cellWidth: 42 },
       7: { halign: "right", cellWidth: 34 },
       8: { halign: "right", cellWidth: 40 },
-      9: { halign: "center", cellWidth: 50 },
+      9: { halign: "center", cellWidth: 34 },
+      10: { halign: "center", cellWidth: 50 },
     },
     didParseCell: (data) => {
       if (data.section !== "body") return;
       const row = rows[data.row.index];
       if (!row) return;
 
+      if (data.column.index === 10) {
+        const style = STATUS_ROW_STYLE[row.status];
+        data.cell.styles.fillColor = style.fill;
+        data.cell.styles.textColor = style.text;
+        return;
+      }
+
       const style = STATUS_ROW_STYLE[row.status];
       data.cell.styles.fillColor = style.fill;
       data.cell.styles.textColor = style.text;
 
-      if (data.column.index === 5) {
+      if (data.column.index === 6) {
         data.cell.styles.textColor =
           row.projectedPace >= report.targetHours ? [4, 120, 87] : [194, 65, 12];
         data.cell.styles.fontStyle = "bold";
       }
-      if (data.column.index === 4 && row.hoursOver > 0) {
+      if (data.column.index === 5 && row.hoursOver > 0) {
         data.cell.styles.textColor = [4, 120, 87];
         data.cell.styles.fontStyle = "bold";
       }

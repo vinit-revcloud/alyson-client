@@ -1,4 +1,10 @@
+import { emailLookupKeys } from "@/lib/cintara-email";
+
 export const WEEKLY_HOURS_TARGET = 35;
+
+export function formatActiveLabel(active: boolean): "Yes" | "No" {
+  return active ? "Yes" : "No";
+}
 
 export type WeeklyPacingStatus = "target_met" | "on_track" | "behind" | "at_risk" | "critical";
 
@@ -27,6 +33,8 @@ export type WeeklyPacingRow = {
   requiredHoursPerDay: number;
   weekProgressPct: number;
   metTarget: boolean;
+  /** Present on the Cintara Google Workspace domain roster. */
+  active: boolean;
   status: WeeklyPacingStatus;
 };
 
@@ -42,6 +50,7 @@ export type WeeklyPacingSortField =
   | "paceDelta"
   | "remainingWorkDays"
   | "requiredHoursPerDay"
+  | "active"
   | "status";
 
 export type WeeklyPacingReport = {
@@ -329,6 +338,7 @@ export function buildPacingRow(args: {
     requiredHoursPerDay,
     weekProgressPct: args.metrics.weekProgressPct,
     metTarget,
+    active: false,
     status: resolvePacingStatus({
       hoursWorked,
       projectedPace,
@@ -346,6 +356,66 @@ export const PACING_STATUS_LABEL: Record<WeeklyPacingStatus, string> = {
   at_risk: "At risk",
   critical: "Critical",
 };
+
+function normEmailKey(email: string): string {
+  return String(email || "").trim().toLowerCase();
+}
+
+function normPersonName(name: string): string {
+  return String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export type PacingStatusLookup = {
+  byEmail: Map<string, string>;
+  byLocalPart: Map<string, string>;
+  byName: Map<string, string>;
+};
+
+/** Index weekly pacing rows for roster / export lookups (same labels as the pacing table). */
+export function buildPacingStatusLookup(rows: WeeklyPacingRow[]): PacingStatusLookup {
+  const byEmail = new Map<string, string>();
+  const byLocalPart = new Map<string, string>();
+  const byName = new Map<string, string>();
+
+  for (const row of rows) {
+    const label = PACING_STATUS_LABEL[row.status];
+    for (const key of emailLookupKeys(row.email)) {
+      if (key.includes("@")) byEmail.set(key, label);
+      else byLocalPart.set(key, label);
+    }
+    const nn = normPersonName(row.name);
+    if (nn) byName.set(nn, label);
+  }
+
+  return { byEmail, byLocalPart, byName };
+}
+
+/** Resolve pacing status label for a roster row; returns `NA` when absent from the pacing report. */
+export function lookupPacingStatus(
+  lookup: PacingStatusLookup,
+  args: { email?: string; name?: string },
+): string {
+  const email = normEmailKey(args.email ?? "");
+  if (email && email !== "no email found") {
+    for (const key of emailLookupKeys(email)) {
+      const direct = key.includes("@") ? lookup.byEmail.get(key) : lookup.byLocalPart.get(key);
+      if (direct) return direct;
+    }
+  }
+
+  const nn = normPersonName(args.name ?? "");
+  if (nn) {
+    const byName = lookup.byName.get(nn);
+    if (byName) return byName;
+  }
+
+  return "NA";
+}
 
 const STATUS_SORT_ORDER: Record<WeeklyPacingStatus, number> = {
   critical: 0,
@@ -374,6 +444,9 @@ export function sortPacingRows(
         break;
       case "status":
         cmp = STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status];
+        break;
+      case "active":
+        cmp = Number(a.active) - Number(b.active);
         break;
       case "hoursExpected":
         cmp = a.projectedPace - b.projectedPace;

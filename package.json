@@ -14,7 +14,7 @@
     "format": "prettier --write .",
     "seed:revcloud": "dotenv -e .env -- node scripts/seed-revcloud-overview.mjs",
     "inspect:orgchart": "npx dotenv-cli -e .env -- node scripts/inspect-orgchart-s3.mjs",
-    "export:org-roster": "node scripts/export-org-roster-sheet.mjs",
+    "export:org-roster": "dotenv -e .env -- npx tsx scripts/export-org-roster-sheet.ts",
     "cron:notetaker-transcripts": "node scripts/cron-notetaker-transcripts.mjs"
   },
   "dependencies": {
