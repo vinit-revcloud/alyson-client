@@ -81,6 +81,7 @@ function renderWeeklyPacingPdf(
     margin: { left: margin, right: margin },
     head: [[
       "Employee",
+      "Manager",
       "Worked",
       "Avg/day",
       "Remaining",
@@ -92,6 +93,9 @@ function renderWeeklyPacingPdf(
     ]],
     body: rows.map((r) => [
       `${r.name}\n${r.email}`,
+      r.managerName
+        ? `${r.managerName}${r.managerEmail ? `\n${r.managerEmail}` : ""}`
+        : "—",
       `${r.hoursWorked.toFixed(2)}h`,
       `${r.avgDailyPace.toFixed(2)}h`,
       r.metTarget ? "—" : `${r.hoursRemaining.toFixed(2)}h`,
@@ -104,15 +108,16 @@ function renderWeeklyPacingPdf(
     styles: { fontSize: 7, cellPadding: 3, overflow: "linebreak", valign: "middle" },
     headStyles: { fillColor: [245, 245, 245], textColor: 20, fontSize: 7.5, fontStyle: "bold" },
     columnStyles: {
-      0: { cellWidth: 128 },
-      1: { halign: "right", cellWidth: 44 },
-      2: { halign: "right", cellWidth: 44 },
-      3: { halign: "right", cellWidth: 48 },
-      4: { halign: "right", cellWidth: 40 },
-      5: { halign: "right", cellWidth: 46 },
-      6: { halign: "right", cellWidth: 38 },
-      7: { halign: "right", cellWidth: 44 },
-      8: { halign: "center", cellWidth: 54 },
+      0: { cellWidth: 118 },
+      1: { cellWidth: 108 },
+      2: { halign: "right", cellWidth: 40 },
+      3: { halign: "right", cellWidth: 40 },
+      4: { halign: "right", cellWidth: 44 },
+      5: { halign: "right", cellWidth: 36 },
+      6: { halign: "right", cellWidth: 42 },
+      7: { halign: "right", cellWidth: 34 },
+      8: { halign: "right", cellWidth: 40 },
+      9: { halign: "center", cellWidth: 50 },
     },
     didParseCell: (data) => {
       if (data.section !== "body") return;

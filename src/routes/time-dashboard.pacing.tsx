@@ -1,15 +1,20 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { PageHeader, TableScroll } from "@/components/AppShell";
 import { FetchingBar } from "@/components/Skeleton";
 import { TimeDashboardGate } from "@/components/TimeDashboardGate";
+import { WeeklyPacingWeekPicker } from "@/components/WeeklyPacingWeekPicker";
 import { fetchWeeklyPacingReport } from "@/lib/time-doctor-functions";
-import { formatRangeLabel } from "@/lib/time-dashboard-range";
+import { formatRangeLabel, isIsoDate } from "@/lib/time-dashboard-range";
 import {
+  filterPacingRows,
   isFridayOrLater,
+  pacingTodayIso,
   PACING_STATUS_LABEL,
+  resolvePacingRollupDay,
   sortPacingRows,
+  weekStartIso,
   type WeeklyPacingRow,
   type WeeklyPacingSortField,
   type WeeklyPacingStatus,
@@ -18,10 +23,19 @@ import { downloadCSV } from "@/lib/csv";
 import { downloadWeeklyPacingPdf } from "@/lib/weekly-pacing-pdf";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, Download, FileText, RefreshCw, TrendingDown } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, Download, FileText, RefreshCw, Search, TrendingDown } from "lucide-react";
+import { z } from "zod";
 
 export const Route = createFileRoute("/time-dashboard/pacing")({
   head: () => ({ meta: [{ title: "Weekly Pacing — Alyson HR" }] }),
+  validateSearch: z
+    .object({
+      day: z.string().optional(),
+    })
+    .transform((s) => ({
+      day: isIsoDate(s.day) ? s.day : undefined,
+    }))
+    .parse,
   component: WeeklyPacingPage,
 });
 
@@ -48,37 +62,68 @@ function rowClass(row: WeeklyPacingRow): string {
 function WeeklyPacingPage() {
   const auth = useAuth();
   const canAccess = auth.canAccessTimeDashboard;
+  const navigate = useNavigate();
+  const search = Route.useSearch();
+  const defaultDay = pacingTodayIso();
+
   const [sortBy, setSortBy] = useState<WeeklyPacingSortField>("hoursRemaining");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [searchQ, setSearchQ] = useState("");
+  const [day, setDay] = useState(search.day ?? defaultDay);
+
+  useEffect(() => {
+    if (search.day) setDay(search.day);
+  }, [search.day]);
+
+  const appliedDay = search.day ?? defaultDay;
+  const rollupDay = useMemo(() => resolvePacingRollupDay(appliedDay), [appliedDay]);
+  const isHistoricalWeek = weekStartIso(appliedDay) < weekStartIso(defaultDay);
 
   const q = useQuery({
-    queryKey: ["weekly-pacing-report", "pace-mon-thu-plus-avg-v7"],
-    queryFn: () => fetchWeeklyPacingReport({ data: { targetHours: 35 } }),
+    queryKey: ["weekly-pacing-report", rollupDay],
+    queryFn: () => fetchWeeklyPacingReport({ data: { targetHours: 35, day: rollupDay } }),
     enabled: canAccess,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
 
+  const draftMatchesApplied = day === appliedDay;
+  const isBusy = q.isFetching;
+
   const report = q.data;
   const allRows = report?.rows ?? [];
 
-  const rows = useMemo(
-    () => sortPacingRows(allRows, sortBy, sortDir),
-    [allRows, sortBy, sortDir],
+  const filteredRows = useMemo(
+    () => filterPacingRows(allRows, searchQ),
+    [allRows, searchQ],
   );
 
-  const weekLabel = report ? formatRangeLabel(report.week.start, report.today) : "…";
+  const rows = useMemo(
+    () => sortPacingRows(filteredRows, sortBy, sortDir),
+    [filteredRows, sortBy, sortDir],
+  );
+
+  const weekLabel = report ? formatRangeLabel(report.week.start, report.week.end) : "…";
+  const asOfLabel = report ? formatRangeLabel(report.today, report.today) : "…";
 
   const summary = useMemo(() => {
-    if (!allRows.length) return null;
-    const metTarget = allRows.filter((r) => r.metTarget).length;
-    const underTarget = allRows.length - metTarget;
-    const critical = allRows.filter((r) => r.status === "critical").length;
-    const atRisk = allRows.filter((r) => r.status === "at_risk").length;
-    const behind = allRows.filter((r) => r.status === "behind").length;
+    if (!filteredRows.length) return null;
+    const metTarget = filteredRows.filter((r) => r.metTarget).length;
+    const underTarget = filteredRows.length - metTarget;
+    const critical = filteredRows.filter((r) => r.status === "critical").length;
+    const atRisk = filteredRows.filter((r) => r.status === "at_risk").length;
+    const behind = filteredRows.filter((r) => r.status === "behind").length;
     return { metTarget, underTarget, critical, atRisk, behind };
-  }, [allRows]);
+  }, [filteredRows]);
+
+  function applyWeek() {
+    navigate({
+      to: "/time-dashboard/pacing",
+      search: { day: day !== defaultDay ? day : undefined },
+    });
+  }
 
   function applySort(field: WeeklyPacingSortField) {
     if (sortBy === field) {
@@ -118,10 +163,12 @@ function WeeklyPacingPage() {
   function exportCsv() {
     if (!report) return;
     downloadCSV(
-      `weekly-pacing-${report.today}.csv`,
+      `weekly-pacing-${report.week.start}-to-${report.today}.csv`,
       rows.map((r) => ({
         email: r.email,
         name: r.name,
+        manager_name: r.managerName ?? "",
+        manager_email: r.managerEmail ?? "",
         hours_worked: r.hoursWorked.toFixed(2),
         avg_daily_pace_mon_thu: r.avgDailyPace.toFixed(2),
         projected_pace: r.projectedPace.toFixed(2),
@@ -147,8 +194,8 @@ function WeeklyPacingPage() {
         title="Weekly Pacing Report"
         description={
           report
-            ? `${report.company.name} · Week ${weekLabel} (${report.timeZoneLabel}) · Target ${report.targetHours}h/week · ${allRows.length} employees · ${summary?.metTarget ?? 0} met target`
-            : "Loading current-week pacing from Time Doctor…"
+            ? `${report.company.name} · Week ${weekLabel} (${report.timeZoneLabel})${isHistoricalWeek ? ` · as of ${asOfLabel}` : ""} · Target ${report.targetHours}h/week · ${filteredRows.length}${searchQ.trim() ? `/${allRows.length}` : ""} employees · ${summary?.metTarget ?? 0} met target`
+            : "Loading weekly pacing from Time Doctor…"
         }
         dense
         actions={
@@ -162,7 +209,7 @@ function WeeklyPacingPage() {
               Time Dashboard
             </Link>
             <button
-              onClick={() => q.refetch()}
+              onClick={() => (draftMatchesApplied ? q.refetch() : applyWeek())}
               disabled={q.isFetching}
               className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
             >
@@ -201,6 +248,31 @@ function WeeklyPacingPage() {
 
         {report ? (
           <>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <WeeklyPacingWeekPicker
+                day={day}
+                onDayChange={setDay}
+                onApply={applyWeek}
+                isBusy={isBusy}
+                draftMatchesApplied={draftMatchesApplied}
+              />
+              <div className="relative w-full sm:max-w-xs">
+                <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <input
+                  value={searchQ}
+                  onChange={(e) => setSearchQ(e.target.value)}
+                  placeholder="Search name, email, or manager…"
+                  className="w-full h-8 pl-8 pr-3 rounded-md border border-border bg-background text-[13px]"
+                />
+              </div>
+            </div>
+
+            {isHistoricalWeek ? (
+              <p className="text-[12px] text-muted-foreground">
+                Viewing a past week — metrics are frozen as of <strong>{asOfLabel}</strong> (Friday snapshot for completed weeks).
+              </p>
+            ) : null}
+
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="surface-card p-4">
                 <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Target met</div>
@@ -249,7 +321,7 @@ function WeeklyPacingPage() {
             ) : null}
 
             <TableScroll>
-              <div className="surface-card overflow-hidden min-w-[1240px]">
+              <div className="surface-card overflow-hidden min-w-[1420px]">
                 <table className="ops-table w-full">
                   <thead>
                     <tr>
@@ -261,6 +333,16 @@ function WeeklyPacingPage() {
                         >
                           Employee
                           <SortIcon field="name" />
+                        </button>
+                      </th>
+                      <th align="left">
+                        <button
+                          type="button"
+                          onClick={() => applySort("managerName")}
+                          className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("managerName")}`}
+                        >
+                          Manager
+                          <SortIcon field="managerName" />
                         </button>
                       </th>
                       <th align="right">
@@ -354,8 +436,10 @@ function WeeklyPacingPage() {
                   <tbody>
                     {rows.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="text-center text-muted-foreground py-8">
-                          No employees found for this week.
+                        <td colSpan={10} className="text-center text-muted-foreground py-8">
+                          {searchQ.trim()
+                            ? "No employees match your search."
+                            : "No employees found for this week."}
                         </td>
                       </tr>
                     ) : (
@@ -364,6 +448,12 @@ function WeeklyPacingPage() {
                           <td>
                             <div className="font-medium text-[13px]">{r.name}</div>
                             <div className="text-[11px] text-muted-foreground">{r.email}</div>
+                          </td>
+                          <td>
+                            <div className="text-[13px]">{r.managerName || "—"}</div>
+                            {r.managerEmail ? (
+                              <div className="text-[11px] text-muted-foreground">{r.managerEmail}</div>
+                            ) : null}
                           </td>
                           <td
                             align="right"

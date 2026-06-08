@@ -7,6 +7,8 @@ export type WeeklyPacingRow = {
   email: string;
   name: string;
   title: string;
+  managerName: string | null;
+  managerEmail: string | null;
   hoursWorked: number;
   /** Average daily hours across Mon–Thu sample days (elapsed only). */
   avgDailyPace: number;
@@ -30,6 +32,7 @@ export type WeeklyPacingRow = {
 
 export type WeeklyPacingSortField =
   | "name"
+  | "managerName"
   | "hoursWorked"
   | "avgDailyPace"
   | "hoursRemaining"
@@ -88,6 +91,80 @@ export function countWeekdaysInclusive(start: string, end: string): number {
 
 export function weekEndIso(weekStart: string): string {
   return addDaysIso(weekStart, 6);
+}
+
+/** Monday of the ISO week containing `day`. */
+export function weekStartIso(day: string): string {
+  const d = parseIso(day);
+  const dow = d.getUTCDay();
+  const daysFromMonday = (dow + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - daysFromMonday);
+  return d.toISOString().slice(0, 10);
+}
+
+export function pacingTodayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export type WeeklyPacingWeekPresetId =
+  | "this_week"
+  | "last_week"
+  | "two_weeks_ago"
+  | "three_weeks_ago"
+  | "four_weeks_ago";
+
+export const WEEKLY_PACING_WEEK_PRESETS: Array<{ id: WeeklyPacingWeekPresetId; label: string }> = [
+  { id: "this_week", label: "This week" },
+  { id: "last_week", label: "Last week" },
+  { id: "two_weeks_ago", label: "2 weeks ago" },
+  { id: "three_weeks_ago", label: "3 weeks ago" },
+  { id: "four_weeks_ago", label: "4 weeks ago" },
+];
+
+/** Pick a representative day for a week preset (Friday for past weeks, today for current). */
+export function resolvePacingWeekPreset(
+  preset: WeeklyPacingWeekPresetId,
+  ref = pacingTodayIso(),
+): string {
+  const monday = weekStartIso(ref);
+  switch (preset) {
+    case "this_week":
+      return ref;
+    case "last_week":
+      return addDaysIso(monday, -3);
+    case "two_weeks_ago":
+      return addDaysIso(monday, -10);
+    case "three_weeks_ago":
+      return addDaysIso(monday, -17);
+    case "four_weeks_ago":
+      return addDaysIso(monday, -24);
+    default:
+      return ref;
+  }
+}
+
+/**
+ * Rollup anchor for Time Doctor: past weeks use Friday (full-week snapshot);
+ * current week uses the selected day capped at today.
+ */
+export function resolvePacingRollupDay(selectedDay: string, today = pacingTodayIso()): string {
+  if (selectedDay > today) return today;
+  const weekStart = weekStartIso(selectedDay);
+  const friday = fridayOfWeek(weekStart);
+  const currentWeekStart = weekStartIso(today);
+  if (weekStart < currentWeekStart) return friday;
+  return selectedDay;
+}
+
+export function filterPacingRows(rows: WeeklyPacingRow[], query: string): WeeklyPacingRow[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return rows;
+  return rows.filter((r) => {
+    const hay = [r.name, r.email, r.title, r.managerName ?? "", r.managerEmail ?? ""]
+      .join(" ")
+      .toLowerCase();
+    return hay.includes(q);
+  });
 }
 
 /** Thursday of the ISO week when weekStart is Monday. */
@@ -239,6 +316,8 @@ export function buildPacingRow(args: {
     email: args.email,
     name: args.name,
     title: args.title,
+    managerName: null,
+    managerEmail: null,
     hoursWorked,
     avgDailyPace,
     hoursRemaining,
@@ -287,6 +366,11 @@ export function sortPacingRows(
     switch (sortBy) {
       case "name":
         cmp = a.name.localeCompare(b.name) || a.email.localeCompare(b.email);
+        break;
+      case "managerName":
+        cmp =
+          (a.managerName || "").localeCompare(b.managerName || "") ||
+          a.name.localeCompare(b.name);
         break;
       case "status":
         cmp = STATUS_SORT_ORDER[a.status] - STATUS_SORT_ORDER[b.status];

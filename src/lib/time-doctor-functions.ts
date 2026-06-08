@@ -1935,6 +1935,9 @@ export const fetchWeeklyPacingReport = createServerFn({ method: "GET" })
       }),
     );
 
+    const { attachManagerToPacingRow, getOrgChartRosterLookup } = await import("@/lib/org-chart-roster");
+    const rosterLookup = getOrgChartRosterLookup();
+
     const rows = users
       .map((u) => {
         const daySeconds = sampleDays.map((day) => {
@@ -1942,7 +1945,7 @@ export const fetchWeeklyPacingReport = createServerFn({ method: "GET" })
           const dayMap = rangeCache.get(cacheKey);
           return dayMap?.get(u.id) ?? 0;
         });
-        return buildPacingRow({
+        const row = buildPacingRow({
           id: u.id,
           email: (u.email || "").trim(),
           name: (u.name || u.email || "").trim(),
@@ -1953,6 +1956,7 @@ export const fetchWeeklyPacingReport = createServerFn({ method: "GET" })
           today: rollupDay,
           weekStart: pacingWeekStart,
         });
+        return row ? attachManagerToPacingRow(row, rosterLookup) : null;
       })
       .filter((r): r is NonNullable<typeof r> => r != null);
 
