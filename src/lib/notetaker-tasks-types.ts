@@ -36,6 +36,9 @@ export type NotetakerTasksReport = {
   analyzedMeetings: number;
   skippedMeetings: number;
   totalTasks: number;
+  groqCallsUsed: number;
+  notesOnlyMeetings: number;
+  estimatedTokensUsed: number;
   users: UserTaskRollup[];
   unassigned: MeetingTask[];
   warnings: string[];

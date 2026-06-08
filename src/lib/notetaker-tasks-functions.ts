@@ -8,7 +8,7 @@ const ReportInput = z.object({
   end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   assigneeEmail: z.string().email(),
   assigneeName: z.string().min(1).optional(),
-  maxMeetings: z.number().int().min(1).max(40).optional(),
+  maxMeetings: z.number().int().min(1).max(20).optional(),
   forceRefresh: z.boolean().optional(),
 });
 

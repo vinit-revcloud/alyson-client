@@ -192,7 +192,7 @@ function TasksPage() {
           end: range.end,
           assigneeEmail: email,
           assigneeName: (assigneeName ?? resolvedPerson?.name)?.trim() || undefined,
-          maxMeetings: 25,
+          maxMeetings: 8,
           forceRefresh,
         },
       });
@@ -200,7 +200,13 @@ function TasksPage() {
     },
     onSuccess: (report) => {
       setInsightsMd(null);
-      toast.success(`Extracted ${report.totalTasks} tasks from ${report.analyzedMeetings} meetings`);
+      const groqNote =
+        report.groqCallsUsed > 0
+          ? ` (${report.groqCallsUsed} Groq calls, ${report.notesOnlyMeetings} from notes)`
+          : report.notesOnlyMeetings > 0
+            ? ` (${report.notesOnlyMeetings} from notes, no Groq)`
+            : "";
+      toast.success(`Extracted ${report.totalTasks} tasks from ${report.analyzedMeetings} meetings${groqNote}`);
     },
     onError: (e: Error) => toast.error(e.message || "Task crawl failed"),
   });
@@ -225,7 +231,7 @@ function TasksPage() {
       <PageHeader
         eyebrow="Operations"
         title="Meeting tasks"
-        description="Search a person, then crawl only their meetings and action items from S3 — scoped Groq extraction to save tokens."
+        description="Search a person, then crawl only meetings where they spoke in the transcript — skips meetings they were not in."
         dense
         actions={
           <div className="flex items-center gap-2">
@@ -250,12 +256,6 @@ function TasksPage() {
 
       <div className="px-5 md:px-8 py-6 space-y-5">
         <div className="surface-card p-4 space-y-4">
-          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-[11.5px] text-muted-foreground">
-            <span className="font-medium text-foreground">How it works:</span> Pick one person, then we only scan meetings
-            they joined and extract <span className="font-medium text-foreground">their</span> action items via Groq — saves
-            tokens vs crawling everyone.
-          </div>
-
           <div className="space-y-1">
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Meeting window</span>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -405,7 +405,7 @@ function TasksPage() {
 
           {crawlM.isPending ? (
             <div className="text-[12px] text-muted-foreground">
-              Finding meetings for {focusName || "selected person"} and extracting only their action items…
+              Finding meetings where {focusName || "selected person"} spoke, then extracting their action items…
             </div>
           ) : null}
         </div>
@@ -415,13 +415,17 @@ function TasksPage() {
             {report.focusPerson.name} · {report.range.start} → {report.range.end}
             <span className="mx-2">·</span>
             Model: Groq / {report.model}
+            <span className="mx-2">·</span>
+            {report.notesOnlyMeetings} notes-only
+            <span className="mx-2">·</span>
+            {report.groqCallsUsed} Groq calls (~{report.estimatedTokensUsed.toLocaleString()} est. tokens)
           </div>
         ) : null}
 
         {report ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <StatCard label="Meetings in range" value={String(report.meetingCount)} />
-            <StatCard label="Their meetings" value={String(report.personMeetingCount)} />
+            <StatCard label="Meetings attended" value={String(report.personMeetingCount)} />
             <StatCard label="Meetings with tasks" value={String(report.analyzedMeetings)} />
             <StatCard label="Tasks extracted" value={String(report.totalTasks)} />
           </div>
