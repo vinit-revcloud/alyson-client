@@ -116,10 +116,13 @@ export function EmployeeEmailPicker({
           onBlur={() => window.setTimeout(() => setOpen(false), 150)}
           onKeyDown={(e) => {
             if (e.key === "Escape") setOpen(false);
-            if (e.key === "Enter" && suggestions[0]) {
-              onSelect(suggestions[0]);
-              onQueryChange(suggestions[0].name);
-              setOpen(false);
+            if (e.key === "Enter") {
+              const pick = suggestions[0] ?? resolved;
+              if (pick) {
+                onSelect(pick);
+                onQueryChange(pick.name);
+                setOpen(false);
+              }
             }
           }}
           disabled={disabled || directoryQ.isLoading}

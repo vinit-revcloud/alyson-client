@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, DollarSign, TrendingUp, Gift, PieChart, Calendar,
   Clock, FileText, GitBranch, BarChart3, Shield, HelpCircle,
   Moon, Sun, ChevronsLeft, ChevronsRight, LogOut, Search, Bot, Menu, X, Send, Link2, Activity, Trophy,
-  Captions, UserPlus, CalendarDays, Paintbrush,
+  Captions, UserPlus, CalendarDays, Paintbrush, ListTodo,
 } from "lucide-react";
 import { useAuth, ROLE_LABEL, type AppRole } from "@/lib/auth";
 import { useTheme } from "@/lib/theme";
@@ -33,6 +33,7 @@ const NEW_BADGE_ROUTES = new Set<string>([
   "/alyson-notetaker/calendar",
   "/alyson-notetaker/analytics",
   "/alyson-notetaker/unified-meetings",
+  "/alyson-notetaker/tasks",
   "/boarding",
   "/handover-documentation",
   "/workspace-activity",
@@ -62,6 +63,7 @@ const NAV: NavItem[] = [
   { to: "/alyson-notetaker/calendar", label: "Meeting Calendar", icon: CalendarDays, group: "Ops" },
   { to: "/alyson-notetaker/analytics", label: "Analytics", icon: BarChart3, group: "Ops" },
   { to: "/alyson-notetaker/unified-meetings", label: "Unified Meetings", icon: CalendarDays, group: "Ops" },
+  { to: "/alyson-notetaker/tasks", label: "Tasks", icon: ListTodo, group: "Ops" },
   { to: "/admin", label: "Admin", icon: Shield, group: "Admin", roles: ["super_admin"] },
   { to: "/help", label: "Help", icon: HelpCircle, group: "Admin" },
 ];
