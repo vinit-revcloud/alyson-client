@@ -11,7 +11,6 @@ import {
 import { getNotetakerSession, loadNotetakerSessionArchive } from "@/lib/notetaker-get-session-functions";
 import { Captions, Plus, RefreshCw, Sparkles, Copy, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
-import { useAuth } from "@/lib/auth";
 import { askMiniModuleAi } from "@/lib/mini-module-ai";
 import { finalizeAndPersistNotetakerSession } from "@/lib/notetaker-persistence-functions";
 import { syncNotetakerSessionsIndexToS3 } from "@/lib/notetaker-sessions-s3-functions";
@@ -23,13 +22,9 @@ export const Route = createFileRoute("/alyson-notetaker/")({
 });
 
 function AlysonNotetakerPage() {
-  const auth = useAuth();
-  const isSuperAdmin = auth.hasRole("super_admin");
-
   const sessionsQ = useQuery({
     queryKey: ["alyson-notetaker", "sessions"],
     queryFn: () => listNotetakerSessions(),
-    enabled: isSuperAdmin,
     staleTime: 20_000,
     gcTime: 5 * 60_000,
     refetchInterval: 30_000,
@@ -60,11 +55,10 @@ function AlysonNotetakerPage() {
   });
 
   useEffect(() => {
-    if (!isSuperAdmin) return;
     if (!picked && sessionsQ.data?.sessions?.[0]?.botId) {
       setPicked(sessionsQ.data.sessions[0].botId);
     }
-  }, [isSuperAdmin, picked, sessionsQ.data]);
+  }, [picked, sessionsQ.data]);
 
   const sessions = sessionsQ.data?.sessions ?? [];
   const hasRecallConfig = sessionsQ.data?.hasRecallConfig ?? false;
@@ -78,23 +72,6 @@ function AlysonNotetakerPage() {
       return title.includes(q) || id.includes(q);
     });
   }, [sessions, sessionsSearch]);
-
-  if (!isSuperAdmin) {
-    return (
-      <div className="ops-dense">
-        <PageHeader eyebrow="Operations" title="Alyson Notetaker" description="Super admin only." dense />
-        <div className="px-5 md:px-8 py-6">
-          <div className="surface-card p-8 text-center">
-            <div className="mx-auto h-10 w-10 rounded-full bg-muted grid place-items-center text-muted-foreground mb-3">
-              <Captions className="h-5 w-5" />
-            </div>
-            <div className="font-medium text-[15px]">Access denied</div>
-            <div className="text-[13px] text-muted-foreground mt-1">This feature is restricted to Super Admins.</div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   if (sessionsQ.isError && !sessionsQ.data) {
     const msg = sessionsQ.error instanceof Error ? sessionsQ.error.message : "Failed to load sessions.";
