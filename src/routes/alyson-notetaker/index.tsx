@@ -308,7 +308,7 @@ function AlysonNotetakerPage() {
 function CreateBotForm({ onCreated }: { onCreated: (botId: string | null) => void }) {
   const [meetingUrl, setMeetingUrl] = useState("");
   const [title, setTitle] = useState("");
-  const [botName, setBotName] = useState("Notetaker");
+  const [botName, setBotName] = useState("Alyson Notetaker");
   const [avatarB64, setAvatarB64] = useState<string | null>(null);
 
   useEffect(() => {

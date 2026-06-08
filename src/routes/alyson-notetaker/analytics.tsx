@@ -492,7 +492,7 @@ function AnalyticsPage() {
               className="h-7 px-2.5 rounded-md border border-border bg-background text-[11.5px] font-medium inline-flex items-center gap-1.5"
             >
               <Captions className="h-3.5 w-3.5" />
-              Notetaker
+              Alyson Notetaker
             </Link>
           </div>
         }
