@@ -438,7 +438,7 @@ function CalendarPage() {
                           (isToday ? "text-[10px] sm:text-[11px] px-1.5 py-px " : "text-[10px] px-1.5 py-px ")
                         }
                       >
-                        {count} mtg{count === 1 ? "" : "s"}
+                        {count} meeting{count === 1 ? "" : "s"}
                       </span>
                     ) : (
                       <span className="text-[10px] text-muted-foreground/45">—</span>
