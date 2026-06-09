@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
-import { Gift, FileText, Play, ShieldCheck } from "lucide-react";
+import { Gift, FileText } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
 
@@ -21,19 +21,19 @@ function BonusLayout() {
           <div className="text-[10.5px] uppercase tracking-[0.14em] text-muted-foreground font-medium mb-1.5">Money</div>
           <div className="flex items-center gap-2">
             <Gift className="h-5 w-5 text-muted-foreground shrink-0" />
-            <h1 className="font-display text-xl md:text-2xl font-semibold tracking-tight text-foreground leading-tight truncate">Bonus</h1>
+            <h1 className="font-display text-xl md:text-2xl font-semibold tracking-tight text-foreground leading-tight truncate">
+              Bonus & Shares
+            </h1>
           </div>
           <p className="mt-1.5 text-[13px] md:text-[14px] text-muted-foreground max-w-2xl leading-relaxed">
-            Quarterly variable bonus allocation, simulation, and approvals (CEO + Super Admin only).
+            Per-employee cash bonus and equity ledger, synced with Employee Onboarding. All payments are append-only and
+            persisted to S3 forever.
           </p>
         </div>
 
         <div className="shrink-0 flex items-center gap-2 flex-wrap">
-          <Tab to="/bonus" label="Overview" />
-          <Tab to="/bonus/plans" label="Plans" />
-          <Tab to="/bonus/simulate" label="Simulate" icon={Play} />
-          <Tab to="/bonus/approvals" label="Approvals" icon={ShieldCheck} />
-          <Tab to="/bonus/audit" label="Audit" icon={FileText} />
+          <Tab to="/bonus" label="Employees" />
+          <Tab to="/bonus/audit" label="Audit log" icon={FileText} />
         </div>
       </div>
 
@@ -47,7 +47,7 @@ function Tab({
   label,
   icon: Icon,
 }: {
-  to: "/bonus" | "/bonus/plans" | "/bonus/simulate" | "/bonus/approvals" | "/bonus/audit";
+  to: "/bonus" | "/bonus/audit";
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
 }) {
@@ -69,7 +69,7 @@ function AccessDenied() {
     <div className="px-5 md:px-8 py-10">
       <div className="surface-card p-10 text-center">
         <div className="mx-auto h-10 w-10 rounded-full bg-muted grid place-items-center text-muted-foreground mb-3">
-          <ShieldCheck className="h-5 w-5" />
+          <FileText className="h-5 w-5" />
         </div>
         <div className="font-medium text-[15px]">Access denied</div>
         <div className="text-[13px] text-muted-foreground mt-1 max-w-md mx-auto">
@@ -79,4 +79,3 @@ function AccessDenied() {
     </div>
   );
 }
-

@@ -1,92 +1,99 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo } from "react";
-
+import { useQuery } from "@tanstack/react-query";
+import { Cloud, Loader2 } from "lucide-react";
+import { FetchingBar } from "@/components/Skeleton";
 import { useAuth } from "@/lib/auth";
+import { getBonusAuditLog } from "@/lib/bonus-functions";
+import type { BonusOperation } from "@/lib/bonus-schema";
+import { fmtDate } from "@/lib/format";
 
 export const Route = createFileRoute("/bonus/audit")({
   component: BonusAuditPage,
 });
 
-type AuditAction = "CREATE" | "UPDATE" | "DELETE";
-
-type AuditRow = {
-  id: string;
-  entity_type: string;
-  entity_id: string;
-  action: AuditAction;
-  changed_by: string;
-  timestamp: string;
-  change_data: Record<string, unknown>;
-};
+const QUERY_KEY = ["bonus-audit-log"];
 
 function BonusAuditPage() {
-  const { hasRole, user } = useAuth();
+  const { hasRole } = useAuth();
   const isSuperAdmin = hasRole("super_admin");
 
-  const rows = useMemo<AuditRow[]>(
-    () => [
-      {
-        id: "al_001",
-        entity_type: "BonusCycle",
-        entity_id: "bc_q4",
-        action: "UPDATE",
-        changed_by: user?.email ?? "system@acme.com",
-        timestamp: "2026-04-12 09:14",
-        change_data: { bonus_pool_percentage: { from: 5, to: 8 } },
-      },
-      {
-        id: "al_002",
-        entity_type: "EmployeeBucket",
-        entity_id: "e_004",
-        action: "UPDATE",
-        changed_by: "super_admin@acme.com",
-        timestamp: "2026-04-12 10:02",
-        change_data: { bucket: { from: "GOOD", to: "TOP_EPD" } },
-      },
-    ],
-    [user?.email]
-  );
+  const q = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn: () => getBonusAuditLog(),
+  });
+
+  const entries = q.data?.entries ?? [];
 
   return (
     <div className="px-5 md:px-8 py-6 space-y-6">
+      <FetchingBar active={q.isFetching} />
+
       <div className="surface-card p-4">
-        <div className="font-display text-lg">Audit log</div>
+        <div className="font-display text-lg">Operations log</div>
         <div className="text-[12px] text-muted-foreground mt-1">
-          Mock audit entries (demo). In production, this should reflect immutable server-side logs.
+          Append-only audit trail for bonus and share events. Every bootstrap, sync, and payment is persisted to S3 forever.
         </div>
+        {q.data?.bucket && (
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground font-mono">
+            <Cloud className="h-3.5 w-3.5 shrink-0" />
+            s3://{q.data.bucket}/{q.data.key}
+          </div>
+        )}
         {!isSuperAdmin && (
           <div className="mt-2 text-[12px] text-muted-foreground">
-            Full audit detail is typically restricted to Super Admin.
+            Event payloads are visible to Super Admin only.
           </div>
         )}
       </div>
 
       <div className="surface-ops overflow-x-auto">
-        <div className="min-w-[860px]">
+        <div className="min-w-[900px]">
           <table className="ops-table w-full">
             <thead>
               <tr>
                 <th align="left">Timestamp</th>
-                <th align="left">Action</th>
-                <th align="left">Entity</th>
-                <th align="left">By</th>
-                <th align="left">Change</th>
+                <th align="left">Operation</th>
+                <th align="left">Employee</th>
+                <th align="left">Actor</th>
+                <th align="left">Details</th>
+                {isSuperAdmin && <th align="left">Event</th>}
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td className="text-muted-foreground text-[12px]">{r.timestamp}</td>
-                  <td>
-                    <span className={"pill " + pillFor(r.action)}>{r.action.toLowerCase()}</span>
-                  </td>
-                  <td className="text-muted-foreground">{r.entity_type} · {r.entity_id}</td>
-                  <td className="text-muted-foreground text-[12px]">{r.changed_by}</td>
-                  <td className="font-mono text-[11px] text-muted-foreground overflow-x-auto whitespace-nowrap max-w-[460px]">
-                    {isSuperAdmin ? JSON.stringify(r.change_data) : "—"}
+              {q.isLoading ? (
+                <tr>
+                  <td colSpan={isSuperAdmin ? 6 : 5} className="text-center py-10 text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin inline-block" />
                   </td>
                 </tr>
-              ))}
+              ) : entries.length === 0 ? (
+                <tr>
+                  <td colSpan={isSuperAdmin ? 6 : 5} className="text-center py-10 text-muted-foreground text-[13px]">
+                    No operations logged yet.
+                  </td>
+                </tr>
+              ) : (
+                entries.map((r, i) => (
+                  <tr key={`${r.ts}-${i}`}>
+                    <td className="text-muted-foreground text-[12px] whitespace-nowrap">
+                      {fmtDate(r.ts.slice(0, 10))} {r.ts.slice(11, 19)}
+                    </td>
+                    <td>
+                      <span className={"pill " + pillFor(r.op)}>{r.op.replace("_", " ")}</span>
+                    </td>
+                    <td className="text-muted-foreground text-[12px]">
+                      {r.employeeName || r.employeeId || "—"}
+                    </td>
+                    <td className="text-muted-foreground text-[12px]">{r.actor || "—"}</td>
+                    <td className="text-[12px] max-w-[280px]">{r.details || "—"}</td>
+                    {isSuperAdmin && (
+                      <td className="font-mono text-[11px] text-muted-foreground max-w-[320px] overflow-x-auto whitespace-nowrap">
+                        {r.event ? JSON.stringify(r.event) : "—"}
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -95,9 +102,9 @@ function BonusAuditPage() {
   );
 }
 
-function pillFor(a: AuditAction) {
-  if (a === "CREATE") return "pill-info";
-  if (a === "DELETE") return "pill-danger";
+function pillFor(op: BonusOperation) {
+  if (op === "bootstrap" || op === "sync") return "pill-info";
+  if (op === "append_bonus") return "pill-success";
+  if (op === "void_bonus" || op === "void_share") return "pill-danger";
   return "pill-neutral";
 }
-
