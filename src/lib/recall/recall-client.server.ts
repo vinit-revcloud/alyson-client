@@ -55,8 +55,15 @@ export async function recallFetch<T = unknown>(
     }
 
     if (!res.ok) {
+      const detail = (body as { detail?: unknown })?.detail;
+      const detailText =
+        typeof detail === "string"
+          ? detail
+          : detail != null
+            ? JSON.stringify(detail)
+            : "";
       const msg =
-        (body as { detail?: string })?.detail ||
+        detailText ||
         (body as { message?: string })?.message ||
         text.slice(0, 300) ||
         `Recall API failed (${res.status})`;

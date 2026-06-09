@@ -391,13 +391,15 @@ function RecallCalendarPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <a
-            href="/api/recall/calendar/connect?returnTo=/alyson-notetaker/unified-meetings"
+          <Link
+            to="/api/recall/calendar/connect"
+            search={{ returnTo: "/alyson-notetaker/unified-meetings" }}
+            reloadDocument
             className="h-8 px-3 rounded-md border border-border bg-foreground text-background text-[12px] font-medium inline-flex items-center gap-1.5"
           >
             <Link2 className="h-3.5 w-3.5" />
             Connect Google Calendar
-          </a>
+          </Link>
           <button
             type="button"
             disabled={busy}

@@ -67,7 +67,22 @@ export async function completeRecallCalendarConnect(code: string, stateToken: st
     status: "connected",
   });
 
-  const sync = await syncRecallCalendarEvents({ calendarId: cal.id, ownerEmail: connectedEmail });
+  let sync: Awaited<ReturnType<typeof syncRecallCalendarEvents>>;
+  try {
+    sync = await syncRecallCalendarEvents({ calendarId: cal.id, ownerEmail: connectedEmail });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    sync = {
+      calendarId: cal.id,
+      processed: 0,
+      scheduled: 0,
+      skipped: 0,
+      deleted: 0,
+      errors: [msg],
+      ownerEmail: connectedEmail,
+      reason: "Initial sync failed — use Sync in Unified Meetings to retry",
+    };
+  }
   return { calendarId: cal.id, email: connectedEmail, sync, returnTo: state.returnTo };
 }
 

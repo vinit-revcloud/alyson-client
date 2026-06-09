@@ -1,7 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { appBaseUrl } from "@/lib/recall/recall-client.server";
 
-const GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
+const GOOGLE_CALENDAR_SCOPE = [
+  "https://www.googleapis.com/auth/calendar.events.readonly",
+  "https://www.googleapis.com/auth/userinfo.email",
+].join(" ");
 
 export function googleOAuthClientId(): string {
   const v = process.env.GOOGLE_OAUTH_CLIENT_ID?.trim();
