@@ -116,6 +116,7 @@ export function UnifiedMeetingsPage() {
       return json as {
         ok: boolean;
         webhookUrl: string;
+        oauthRedirectUri?: string;
         connected: RecallCalendarConnection[];
         total: number;
       };
@@ -199,6 +200,7 @@ export function UnifiedMeetingsPage() {
           loading={calendarQ.isLoading}
           error={calendarQ.isError ? (calendarQ.error as Error).message : null}
           webhookUrl={calendarQ.data?.webhookUrl}
+          oauthRedirectUri={calendarQ.data?.oauthRedirectUri}
           connected={calendarQ.data?.connected ?? []}
           onBootstrap={() => calendarActionM.mutate({ action: "bootstrap" })}
           onSync={(calendarId) => calendarActionM.mutate({ action: "sync", calendarId })}
@@ -351,6 +353,7 @@ function RecallCalendarPanel({
   loading,
   error,
   webhookUrl,
+  oauthRedirectUri,
   connected,
   onBootstrap,
   onSync,
@@ -360,6 +363,7 @@ function RecallCalendarPanel({
   loading: boolean;
   error: string | null;
   webhookUrl?: string;
+  oauthRedirectUri?: string;
   connected: RecallCalendarConnection[];
   onBootstrap: () => void;
   onSync: (calendarId: string) => void;
@@ -401,8 +405,16 @@ function RecallCalendarPanel({
       </div>
 
       {webhookUrl && (
-        <div className="text-[11px] text-muted-foreground break-all">
-          Webhook URL (set in Recall dashboard): <span className="text-foreground font-mono">{webhookUrl}</span>
+        <div className="text-[11px] text-muted-foreground break-all space-y-1">
+          <div>
+            Webhook URL (Recall dashboard): <span className="text-foreground font-mono">{webhookUrl}</span>
+          </div>
+          {oauthRedirectUri && (
+            <div>
+              Google OAuth redirect URI (add in Google Cloud Console):{" "}
+              <span className="text-foreground font-mono">{oauthRedirectUri}</span>
+            </div>
+          )}
         </div>
       )}
 

@@ -14,15 +14,14 @@ export function recallApiKey(): string {
 }
 
 export function appBaseUrl(fallbackOrigin?: string): string {
-  const explicit =
-    process.env.ALYSON_APP_BASE_URL?.trim() ||
-    process.env.PUBLIC_WEBHOOK_BASE_URL?.trim() ||
-    process.env.VERCEL_URL?.trim();
+  if (fallbackOrigin?.trim()) {
+    return fallbackOrigin.replace(/\/$/, "");
+  }
+  const explicit = process.env.ALYSON_APP_BASE_URL?.trim() || process.env.VERCEL_URL?.trim();
   if (explicit) {
     const u = explicit.replace(/\/$/, "");
     return u.startsWith("http") ? u : `https://${u}`;
   }
-  if (fallbackOrigin) return fallbackOrigin.replace(/\/$/, "");
   return "http://localhost:3001";
 }
 

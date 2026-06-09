@@ -15,6 +15,7 @@ import {
 import type { RecallCalendarEvent } from "@/lib/recall/recall-calendar-types";
 import { updateRecallCalendarSyncMeta, readRecallCalendarState } from "@/lib/recall/recall-calendar-state-s3.server";
 import { isRecallCalendarEmailAllowed } from "@/lib/recall/recall-calendar-allowlist.server";
+import { recallBotRecordingConfig } from "@/lib/recall/recall-bot-config.server";
 
 const BOT_JOIN_OFFSET_MS = 2 * 60 * 1000;
 
@@ -36,7 +37,9 @@ function botConfigForEvent(event: RecallCalendarEvent) {
   const joinAt = resolveBotJoinAt(event.start_time, event.end_time, BOT_JOIN_OFFSET_MS);
   return {
     bot_name: botName,
+    // join_at allowed per-event on Calendar V2 schedule API, not in dashboard default template
     join_at: joinAt,
+    ...recallBotRecordingConfig(),
     metadata: {
       source: "recall_calendar_v2",
       recall_calendar_event_id: event.id,

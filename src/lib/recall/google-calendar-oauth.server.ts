@@ -18,7 +18,9 @@ export function googleOAuthClientSecret(): string {
 export function recallCalendarOAuthRedirectUri(origin?: string): string {
   const explicit = process.env.RECALL_CALENDAR_OAUTH_REDIRECT_URI?.trim();
   if (explicit) return explicit;
-  return `${appBaseUrl(origin)}/api/recall/calendar/callback`;
+  // Must match an Authorized redirect URI in Google Cloud Console exactly.
+  if (origin?.trim()) return `${origin.replace(/\/$/, "")}/api/recall/calendar/callback`;
+  return `${appBaseUrl()}/api/recall/calendar/callback`;
 }
 
 export function buildGoogleCalendarOAuthUrl(state: string, origin?: string): string {

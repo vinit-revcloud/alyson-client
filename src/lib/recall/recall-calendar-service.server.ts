@@ -3,6 +3,7 @@ import {
   bootstrapRecallCalendarFromEnv,
   buildGoogleCalendarOAuthUrl,
   exchangeGoogleOAuthCode,
+  recallCalendarOAuthRedirectUri,
   recallCalendarWebhookUrl,
 } from "@/lib/recall/google-calendar-oauth.server";
 import { createRecallCalendar, deleteRecallCalendar, getRecallCalendar } from "@/lib/recall/recall-calendar-v2.server";
@@ -26,6 +27,7 @@ export async function getRecallCalendarStatus() {
   const connected = getConnectedRecallCalendars(state).filter((c) => isRecallCalendarEmailAllowed(c.email));
   return {
     webhookUrl: recallCalendarWebhookUrl(),
+    oauthRedirectUri: recallCalendarOAuthRedirectUri(),
     connected,
     total: state.connections.length,
     allowlist: getRecallCalendarAllowlist(),
