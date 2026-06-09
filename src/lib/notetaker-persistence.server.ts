@@ -269,6 +269,43 @@ export async function persistMeetingToS3({
   };
 }
 
+/** Write notes.md for a meeting folder prefix (no bot-index required). */
+export async function writeNotesMdForMeetingPrefix(prefix: string, notesMd: string, botId?: string) {
+  const bucket = requireEnvAlias("AWS_S3_BUCKET", ["S3_BUCKET"]);
+  await ensureBucketExists(bucket);
+  const notesKey = `alyson-notetaker/meetingnotes/${prefix}/notes.md`;
+  const body = notesMd.trim();
+  if (!body) throw new Error("Empty notes");
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: notesKey,
+      Body: body,
+      ContentType: "text/markdown; charset=utf-8",
+      Metadata: { kind: "alyson-notetaker-notes", prefix },
+    }),
+  );
+
+  if (botId) {
+    const existing = await loadBotIndexDoc(botId);
+    if (existing?.prefix) {
+      const botIndexKey = `alyson-notetaker/bot-index/${encodeURIComponent(botId)}.json`;
+      const notesHash = contentHash(body);
+      await s3().send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: botIndexKey,
+          Body: JSON.stringify({ ...existing, notesKey, notesHash }, null, 2),
+          ContentType: "application/json; charset=utf-8",
+          Metadata: { kind: "alyson-notetaker-bot-index", botid: String(botId) },
+        }),
+      );
+    }
+  }
+
+  return { notesKey };
+}
+
 /** Record cron stability on bot-index (no transcript rewrite). */
 export async function patchBotIndexCronStability(
   botId: string,

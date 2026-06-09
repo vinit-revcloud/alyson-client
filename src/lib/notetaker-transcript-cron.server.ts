@@ -1,5 +1,5 @@
 import type { NotetakerSession, NotetakerSessionPayload } from "@/lib/alyson-notetaker-functions";
-import { autoPersistEndedMeetingToS3, maybeCheckpointTranscriptToS3 } from "@/lib/notetaker-auto-persist.server";
+import { autoPersistEndedMeetingToS3, ensureMeetingNotesInS3, maybeCheckpointTranscriptToS3 } from "@/lib/notetaker-auto-persist.server";
 import { notetakerTranscriptCronEnabled } from "@/lib/notetaker-cron-auth.server";
 import {
   composeTranscript,
@@ -151,12 +151,18 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
       const ended = ENDED_SESSION_STATUSES.has(st);
 
       if (ended) {
-        const result = await autoPersistEndedMeetingToS3({
+        let result = await autoPersistEndedMeetingToS3({
           session,
           lines: payload.lines,
           existingNotesMd: payload.notesMd,
           existingNotesModel: payload.notesModel,
         });
+        if (result.skipped === "unchanged" || result.skipped === "notes_generation_failed") {
+          const backfill = await ensureMeetingNotesInS3(botId);
+          if (backfill.ok && backfill.notesMd?.trim()) {
+            result = { persisted: true, notesMd: backfill.notesMd };
+          }
+        }
         if (result.persisted) {
           written += 1;
           if (result.notesMd?.trim()) notesWritten += 1;

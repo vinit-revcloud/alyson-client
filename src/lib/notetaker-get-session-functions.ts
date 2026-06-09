@@ -134,22 +134,47 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
 
       if (typed.session?.botId && typed.lines.length > 0 && ended) {
         const existing = await getPersistedSession(typed.session.botId);
-        if (!existing?.finalizedAt || (existing.transcript?.lineCount ?? 0) < typed.lines.length) {
+
+        if (!typed.notesMd?.trim() && fromS3?.notesMd?.trim()) {
+          typed.notesMd = fromS3.notesMd;
+          typed.notesModel = fromS3.notesModel;
+        }
+
+        const existingNotesMd =
+          typed.notesMd?.trim() ||
+          existing?.notes?.notesMd?.trim() ||
+          fromS3?.notesMd?.trim() ||
+          "";
+
+        const needsLocalPersist =
+          !existing?.finalizedAt || (existing.transcript?.lineCount ?? 0) < typed.lines.length;
+
+        if (needsLocalPersist) {
           let notes: { notes: string; model?: string } | null = null;
-          try {
-            notes = (await notetakerUpstream(`/api/session/${encodeURIComponent(data.botId)}/notes`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ prompt: "" }),
-            })) as { notes: string; model?: string };
-          } catch {
-            // Notes generation can fail; local persistence should still work.
+          if (existingNotesMd) {
+            notes = {
+              notes: existingNotesMd,
+              model: typed.notesModel || existing?.notes?.model || fromS3?.notesModel || "s3",
+            };
+          } else {
+            try {
+              notes = (await notetakerUpstream(`/api/session/${encodeURIComponent(data.botId)}/notes`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt: "" }),
+              })) as { notes: string; model?: string };
+            } catch {
+              // LLM notes only when nothing in S3/local store
+            }
           }
           await persistSession({ session: typed.session, lines: typed.lines ?? [], notes });
           if (notes?.notes) {
             typed.notesMd = notes.notes;
             typed.notesModel = notes.model;
           }
+        } else if (existingNotesMd && !typed.notesMd?.trim()) {
+          typed.notesMd = existingNotesMd;
+          typed.notesModel = typed.notesModel || existing?.notes?.model || fromS3?.notesModel || "s3";
         }
 
         try {
@@ -158,6 +183,7 @@ export const getNotetakerSession = createServerFn({ method: "POST" })
             lines: typed.lines,
             existingNotesMd: typed.notesMd,
             existingNotesModel: typed.notesModel,
+            forceNotes: !existingNotesMd,
           });
           if (auto.persisted) {
             typed.autoPersistedToS3 = true;

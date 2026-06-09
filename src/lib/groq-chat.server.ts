@@ -1,5 +1,11 @@
 export type GroqMessage = { role: "system" | "user" | "assistant"; content: string };
 
+export type MeetingAiChatResult = {
+  content: string;
+  provider: "groq" | "deepseek";
+  model: string;
+};
+
 export function groqModel(): string {
   return process.env.ALYSON_MINI_MODULE_AI_MODEL || process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 }
@@ -9,12 +15,28 @@ export function groqApiKey(): string | null {
   return key?.trim() || null;
 }
 
+export function deepseekApiKey(): string | null {
+  return process.env.DEEPSEEK_API_KEY?.trim() || null;
+}
+
+export function deepseekModel(): string {
+  return process.env.DEEPSEEK_MODEL || "deepseek-chat";
+}
+
+export function meetingAiConfigured(): boolean {
+  return Boolean(groqApiKey() || deepseekApiKey());
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export function isGroqRateLimitError(message: string): boolean {
   return /rate limit|too many requests|429/i.test(message);
+}
+
+export function isAiRateLimitOrQuotaError(message: string): boolean {
+  return isGroqRateLimitError(message) || /quota|tokens per day|insufficient/i.test(message);
 }
 
 export function parseGroqRetryDelayMs(message: string): number | null {
@@ -87,6 +109,96 @@ export async function groqChat(
   }
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function deepseekChatOnce(
+  messages: GroqMessage[],
+  temperature: number,
+  model: string,
+): Promise<string> {
+  const apiKey = deepseekApiKey();
+  if (!apiKey) {
+    throw new Error("DeepSeek is not configured (set DEEPSEEK_API_KEY).");
+  }
+
+  const r = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature,
+      messages,
+    }),
+  });
+
+  const text = await r.text();
+  let json: { choices?: { message?: { content?: string } }[]; error?: { message?: string } } | null = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // ignore
+  }
+  if (!r.ok) {
+    const msg = json?.error?.message || text.slice(0, 300) || `DeepSeek request failed (${r.status})`;
+    throw new Error(String(msg));
+  }
+  return String(json?.choices?.[0]?.message?.content || "").trim();
+}
+
+export async function deepseekChat(
+  messages: GroqMessage[],
+  temperature = 0.2,
+  opts?: { model?: string; maxRetries?: number },
+): Promise<string> {
+  const model = opts?.model || deepseekModel();
+  const maxRetries = opts?.maxRetries ?? 2;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await deepseekChatOnce(messages, temperature, model);
+    } catch (e) {
+      lastError = e;
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!isAiRateLimitOrQuotaError(msg) || attempt >= maxRetries) throw e;
+      await sleep(2_000 * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/** Groq first, then DeepSeek on rate-limit / quota / missing Groq key. */
+export async function meetingAiChat(
+  messages: GroqMessage[],
+  temperature = 0.2,
+  opts?: { provider?: "groq" | "deepseek"; model?: string },
+): Promise<MeetingAiChatResult> {
+  const errors: string[] = [];
+  const preferDeepseek = opts?.provider === "deepseek";
+
+  if (!preferDeepseek && groqApiKey()) {
+    try {
+      const model = opts?.model || groqModel();
+      const content = await groqChat(messages, temperature, { model });
+      return { content, provider: "groq", model };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`Groq: ${msg}`);
+      if (!deepseekApiKey()) throw e;
+    }
+  }
+
+  if (deepseekApiKey()) {
+    const model = opts?.provider === "deepseek" ? opts?.model || deepseekModel() : deepseekModel();
+    const content = await deepseekChat(messages, temperature, { model });
+    return { content, provider: "deepseek", model };
+  }
+
+  throw new Error(
+    errors.join(" | ") || "No AI provider configured (set GROQ_API_KEY or DEEPSEEK_API_KEY in .env).",
+  );
 }
 
 export function extractJsonObject(raw: string): unknown {

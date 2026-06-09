@@ -1,6 +1,6 @@
 import { GetObjectCommand, ListObjectsV2Command, S3Client } from "@aws-sdk/client-s3";
 import type { Readable } from "node:stream";
-import { isGenericMeetingTitle, resolveMeetingTitle } from "@/lib/notetaker-session-title.server";
+import { isGenericMeetingTitle } from "@/lib/notetaker-session-title.server";
 
 function requireEnv(name: string) {
   const v = process.env[name];
@@ -42,11 +42,14 @@ function parsePrefix(prefix: string) {
 
 export type S3Meeting = {
   prefix: string;
+  botId: string | null;
   day: string; // YYYY-MM-DD
   title: string;
   notesKey: string | null;
   transcriptKey: string | null;
   startedAt: string | null;
+  hasNotes: boolean;
+  hasTranscript: boolean;
 };
 
 type BotIndexDoc = {
@@ -56,9 +59,54 @@ type BotIndexDoc = {
   prefix: string;
 };
 
+let botIndexCache: { at: number; docs: BotIndexDoc[] } | null = null;
+const BOT_INDEX_CACHE_MS = 5 * 60_000;
+
+async function listMeetingAssetPrefixes(
+  client: S3Client,
+  bucket: string,
+  base: string,
+  fileName: string,
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  const suffix = `/${fileName}`;
+  let token: string | undefined;
+  do {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: base,
+        ContinuationToken: token,
+      }),
+    );
+    for (const obj of page.Contents ?? []) {
+      const key = String(obj.Key || "");
+      if (!key.endsWith(suffix)) continue;
+      const prefix = key.slice(base.length, key.length - suffix.length);
+      if (prefix) out.add(prefix);
+    }
+    token = page.NextContinuationToken;
+  } while (token);
+  return out;
+}
+
+async function getBotIndexDocs(client: S3Client, bucket: string): Promise<BotIndexDoc[]> {
+  const now = Date.now();
+  if (botIndexCache && now - botIndexCache.at < BOT_INDEX_CACHE_MS) {
+    return botIndexCache.docs;
+  }
+  const docs = await listBotIndexDocs(client, bucket);
+  botIndexCache = { at: now, docs };
+  return docs;
+}
+
+export function invalidateNotetakerCalendarS3Cache() {
+  botIndexCache = null;
+}
+
 async function listBotIndexDocs(client: S3Client, bucket: string): Promise<BotIndexDoc[]> {
-  const out: BotIndexDoc[] = [];
   const base = "alyson-notetaker/bot-index/";
+  const keys: string[] = [];
   let token: string | undefined;
 
   do {
@@ -66,22 +114,37 @@ async function listBotIndexDocs(client: S3Client, bucket: string): Promise<BotIn
       new ListObjectsV2Command({
         Bucket: bucket,
         Prefix: base,
+        ContinuationToken: token,
       }),
     );
     for (const obj of page.Contents ?? []) {
       const key = String(obj.Key || "");
-      if (!key.endsWith(".json")) continue;
-      try {
-        const r = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-        if (!r.Body) continue;
-        const parsed = JSON.parse(await streamToString(r.Body)) as BotIndexDoc;
-        if (parsed?.version === 1 && parsed.botId && parsed.prefix) out.push(parsed);
-      } catch {
-        // skip corrupt index entries
-      }
+      if (key.endsWith(".json")) keys.push(key);
     }
     token = page.NextContinuationToken;
   } while (token);
+
+  const out: BotIndexDoc[] = [];
+  const batchSize = 16;
+  for (let i = 0; i < keys.length; i += batchSize) {
+    const batch = keys.slice(i, i + batchSize);
+    const docs = await Promise.all(
+      batch.map(async (key) => {
+        try {
+          const r = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+          if (!r.Body) return null;
+          const parsed = JSON.parse(await streamToString(r.Body)) as BotIndexDoc;
+          if (parsed?.version === 1 && parsed.botId && parsed.prefix) return parsed;
+        } catch {
+          // skip corrupt index entries
+        }
+        return null;
+      }),
+    );
+    for (const doc of docs) {
+      if (doc) out.push(doc);
+    }
+  }
 
   return out;
 }
@@ -123,73 +186,100 @@ export async function listMeetingsFromS3({ start, end }: { start: string; end: s
   const notesBase = "alyson-notetaker/meetingnotes/";
   const transcriptBase = "alyson-notetaker/transcripts/";
 
-  // 1) List meeting folders by CommonPrefixes (notes + transcripts)
-  const notes = await client.send(
-    new ListObjectsV2Command({
-      Bucket: bucket,
-      Prefix: notesBase,
-      Delimiter: "/",
-    }),
-  );
+  const [notesPrefixes, transcriptPrefixes] = await Promise.all([
+    listMeetingAssetPrefixes(client, bucket, notesBase, "notes.md"),
+    listMeetingAssetPrefixes(client, bucket, transcriptBase, "transcript.txt"),
+  ]);
 
-  const transcripts = await client.send(
-    new ListObjectsV2Command({
-      Bucket: bucket,
-      Prefix: transcriptBase,
-      Delimiter: "/",
-    }),
-  );
+  const prefixes = Array.from(new Set([...notesPrefixes, ...transcriptPrefixes])).filter((p) => {
+    const parts = p.split("_");
+    const date = parts.length >= 2 ? parts[parts.length - 2] : "";
+    return date && date >= start && date <= end;
+  });
 
-  const notesPrefixes = new Set(
-    (notes.CommonPrefixes ?? [])
-      .map((p) => String(p.Prefix || ""))
-      .filter(Boolean)
-      .map((p) => p.replace(notesBase, "").replace(/\/$/, "")),
-  );
-
-  const transcriptPrefixes = new Set(
-    (transcripts.CommonPrefixes ?? [])
-      .map((p) => String(p.Prefix || ""))
-      .filter(Boolean)
-      .map((p) => p.replace(transcriptBase, "").replace(/\/$/, "")),
-  );
-
-  const prefixes = Array.from(new Set([...notesPrefixes, ...transcriptPrefixes]));
-  const botIndexDocs = await listBotIndexDocs(client, bucket);
+  const botIndexDocs = await getBotIndexDocs(client, bucket);
   const botIndexByPrefix = new Map(botIndexDocs.map((d) => [String(d.prefix), d]));
   const titleByPrefix = await loadTitleByPrefix(botIndexDocs);
 
-  // 2) Build meeting rows, filter by day in [start, end]
   const rows: S3Meeting[] = [];
   for (const p of prefixes) {
     const parsed = parsePrefix(p);
     const day = parsed.date;
     if (!day || day < start || day > end) continue;
 
-    let title = titleByPrefix.get(p) || parsed.title || "Meeting";
-    if (isGenericMeetingTitle(title)) {
-      const idx = botIndexByPrefix.get(p);
-      if (idx?.botId) {
-        title = await resolveMeetingTitle({
-          botId: String(idx.botId),
-          title: idx.title || title,
-        });
-      }
-    }
+    const idx = botIndexByPrefix.get(p);
+    const title = titleByPrefix.get(p) || idx?.title || parsed.title || "Meeting";
 
     rows.push({
       prefix: p,
+      botId: idx?.botId ? String(idx.botId) : null,
       day,
       title,
       startedAt: parsed.startedAt,
-      notesKey: notesPrefixes.has(p) ? `${notesBase}${p}/notes.md` : null,
-      transcriptKey: transcriptPrefixes.has(p) ? `${transcriptBase}${p}/transcript.txt` : null,
+      notesKey: `${notesBase}${p}/notes.md`,
+      transcriptKey: `${transcriptBase}${p}/transcript.txt`,
+      hasNotes: notesPrefixes.has(p),
+      hasTranscript: transcriptPrefixes.has(p),
     });
   }
 
-  // Sort newest first by startedAt (fallback to day)
   rows.sort((a, b) => (b.startedAt || b.day).localeCompare(a.startedAt || a.day));
   return rows;
+}
+
+export type NotesCoverageReport = {
+  totalMeetings: number;
+  withTranscript: number;
+  withNotes: number;
+  withBoth: number;
+  missingNotes: Array<{ prefix: string; botId: string | null; day: string; title: string }>;
+};
+
+/** List transcripts in S3 that have no notes.md (read-only audit). */
+export async function auditNotesCoverageFromS3(): Promise<NotesCoverageReport> {
+  const bucket = requireEnvAlias("AWS_S3_BUCKET", ["S3_BUCKET"]);
+  const client = s3();
+  const notesBase = "alyson-notetaker/meetingnotes/";
+  const transcriptBase = "alyson-notetaker/transcripts/";
+
+  const [notesPrefixes, transcriptPrefixes] = await Promise.all([
+    listMeetingAssetPrefixes(client, bucket, notesBase, "notes.md"),
+    listMeetingAssetPrefixes(client, bucket, transcriptBase, "transcript.txt"),
+  ]);
+
+  const allPrefixes = new Set([...notesPrefixes, ...transcriptPrefixes]);
+  const botIndexDocs = await getBotIndexDocs(client, bucket);
+  const botIndexByPrefix = new Map(botIndexDocs.map((d) => [String(d.prefix), d]));
+  const titleByPrefix = await loadTitleByPrefix(botIndexDocs);
+
+  const missingNotes: NotesCoverageReport["missingNotes"] = [];
+  let withBoth = 0;
+
+  for (const p of transcriptPrefixes) {
+    const hasNotes = notesPrefixes.has(p);
+    if (hasNotes) {
+      withBoth += 1;
+      continue;
+    }
+    const parsed = parsePrefix(p);
+    const idx = botIndexByPrefix.get(p);
+    missingNotes.push({
+      prefix: p,
+      botId: idx?.botId ? String(idx.botId) : null,
+      day: parsed.date,
+      title: titleByPrefix.get(p) || idx?.title || parsed.title || "Meeting",
+    });
+  }
+
+  missingNotes.sort((a, b) => b.day.localeCompare(a.day));
+
+  return {
+    totalMeetings: allPrefixes.size,
+    withTranscript: transcriptPrefixes.size,
+    withNotes: notesPrefixes.size,
+    withBoth,
+    missingNotes,
+  };
 }
 
 export async function getNotesMdFromS3({ notesKey }: { notesKey: string }) {
