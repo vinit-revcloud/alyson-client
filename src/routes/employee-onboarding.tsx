@@ -266,6 +266,7 @@ function EmployeeOnboardingPage() {
             hideAddButton
             deleteConfirmNameKey="Name"
             deleteConfirmIdKey="Employee ID"
+            facetFilters={[{ column: "Location", label: "Location" }]}
           />
         )}
       </div>

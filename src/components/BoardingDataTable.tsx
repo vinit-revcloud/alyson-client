@@ -116,6 +116,7 @@ export function BoardingDataTable({
   deleteConfirmIdKey,
   readOnlyCells = false,
   onEditRow,
+  facetFilters,
 }: {
   title: string;
   description?: string;
@@ -138,9 +139,12 @@ export function BoardingDataTable({
   /** Read-only table cells; use with onEditRow for form-based editing. */
   readOnlyCells?: boolean;
   onEditRow?: (rowId: string) => void;
+  /** Dropdown filters (e.g. Location) — options derived from row data. */
+  facetFilters?: Array<{ column: string; label: string }>;
 }) {
   const [globalFilter, setGlobalFilter] = useState(initialFilter);
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [facetValues, setFacetValues] = useState<Record<string, string>>({});
 
   const isEditable = editable && !!onRowsChange;
 
@@ -297,8 +301,36 @@ export function BoardingDataTable({
     : "";
   const deleteTargetId = deleteConfirmIdKey ? toText(deleteTarget?.[deleteConfirmIdKey]).trim() : "";
 
+  const facetOptions = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const facet of facetFilters ?? []) {
+      const values = new Set<string>();
+      for (const row of rows) {
+        const raw = toText(row[facet.column]).trim();
+        values.add(raw || "(No location)");
+      }
+      out[facet.column] = [...values].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    }
+    return out;
+  }, [facetFilters, rows]);
+
+  const filteredRows = useMemo(() => {
+    const active = (facetFilters ?? []).filter((f) => {
+      const v = facetValues[f.column]?.trim();
+      return v && v !== "__all__";
+    });
+    if (!active.length) return rows;
+    return rows.filter((row) =>
+      active.every((facet) => {
+        const selected = facetValues[facet.column]?.trim() ?? "";
+        const cell = toText(row[facet.column]).trim() || "(No location)";
+        return cell.toLowerCase() === selected.toLowerCase();
+      }),
+    );
+  }, [facetFilters, facetValues, rows]);
+
   const table = useReactTable({
-    data: rows,
+    data: filteredRows,
     columns: columnDefs,
     state: { globalFilter, sorting },
     onSortingChange: setSorting,
@@ -331,6 +363,28 @@ export function BoardingDataTable({
               className="w-full h-8 px-3 rounded-md border border-border bg-background text-[13px]"
             />
           </div>
+          {(facetFilters ?? []).map((facet) => (
+            <label key={facet.column} className="inline-flex items-center gap-1.5 shrink-0">
+              <span className="text-[11px] font-medium text-muted-foreground">{facet.label}</span>
+              <select
+                value={facetValues[facet.column] ?? "__all__"}
+                onChange={(e) =>
+                  setFacetValues((prev) => ({
+                    ...prev,
+                    [facet.column]: e.target.value,
+                  }))
+                }
+                className="h-8 min-w-[9rem] px-2 rounded-md border border-border bg-background text-[12px]"
+              >
+                <option value="__all__">All {facet.label}</option>
+                {(facetOptions[facet.column] ?? []).map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt === "(No location)" ? "No location" : opt}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
           {isEditable && !hideAddButton && (
             <button
               type="button"
