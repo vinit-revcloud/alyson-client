@@ -119,6 +119,7 @@ export function UnifiedMeetingsPage() {
         oauthRedirectUri?: string;
         connected: RecallCalendarConnection[];
         total: number;
+        allowlist?: string[];
       };
     },
     staleTime: 30_000,
@@ -201,6 +202,7 @@ export function UnifiedMeetingsPage() {
           error={calendarQ.isError ? (calendarQ.error as Error).message : null}
           webhookUrl={calendarQ.data?.webhookUrl}
           oauthRedirectUri={calendarQ.data?.oauthRedirectUri}
+          allowlist={calendarQ.data?.allowlist}
           connected={calendarQ.data?.connected ?? []}
           onBootstrap={() => calendarActionM.mutate({ action: "bootstrap" })}
           onSync={(calendarId) => calendarActionM.mutate({ action: "sync", calendarId })}
@@ -354,6 +356,7 @@ function RecallCalendarPanel({
   error,
   webhookUrl,
   oauthRedirectUri,
+  allowlist,
   connected,
   onBootstrap,
   onSync,
@@ -364,6 +367,7 @@ function RecallCalendarPanel({
   error: string | null;
   webhookUrl?: string;
   oauthRedirectUri?: string;
+  allowlist?: string[];
   connected: RecallCalendarConnection[];
   onBootstrap: () => void;
   onSync: (calendarId: string) => void;
@@ -371,6 +375,8 @@ function RecallCalendarPanel({
   busy: boolean;
 }) {
   const active = connected.filter((c) => c.status === "connected");
+  const allowedEmails =
+    allowlist?.length ? allowlist : ["alysonclient@cintara.ai", "mohita@cintara.ai", "thirumalai@cintara.ai"];
 
   return (
     <div className="surface-card p-4 space-y-3">
@@ -380,9 +386,8 @@ function RecallCalendarPanel({
           <h3 className="font-display text-lg mt-0.5">Auto-join via calendar webhooks</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
             Connect Google Calendar once. Auto-scheduling runs only for{" "}
-            <span className="text-foreground font-medium">alysonclient@cintara.ai</span> and{" "}
-            <span className="text-foreground font-medium">mohita@cintara.ai</span>. Recall webhooks schedule
-            Alyson for every meeting with a video link (deduped by start time + URL).
+            <span className="text-foreground font-medium">{allowedEmails.join(", ")}</span>. Recall webhooks
+            schedule Alyson for every meeting with a video link (deduped by start time + URL).
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
