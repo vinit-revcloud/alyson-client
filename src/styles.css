@@ -129,6 +129,27 @@
 
   --shadow-soft: 0 1px 2px oklch(0.2 0.02 60 / 0.04), 0 4px 16px -4px oklch(0.2 0.02 60 / 0.06);
   --shadow-lift: 0 2px 4px oklch(0.2 0.02 60 / 0.06), 0 12px 32px -8px oklch(0.2 0.02 60 / 0.1);
+
+  --toast-success-bg: oklch(0.97 0.045 155);
+  --toast-success-border: oklch(0.84 0.09 155);
+  --toast-success-accent: oklch(0.52 0.14 155);
+  --toast-success-icon: oklch(0.48 0.14 155);
+  --toast-success-title: oklch(0.32 0.1 155);
+  --toast-error-bg: oklch(0.97 0.03 28);
+  --toast-error-border: oklch(0.86 0.1 28);
+  --toast-error-accent: oklch(0.55 0.18 28);
+  --toast-error-icon: oklch(0.52 0.17 28);
+  --toast-error-title: oklch(0.38 0.12 28);
+  --toast-warning-bg: oklch(0.98 0.04 85);
+  --toast-warning-border: oklch(0.88 0.1 75);
+  --toast-warning-accent: oklch(0.68 0.14 70);
+  --toast-warning-icon: oklch(0.58 0.14 70);
+  --toast-warning-title: oklch(0.38 0.08 70);
+  --toast-info-bg: oklch(0.97 0.025 250);
+  --toast-info-border: oklch(0.86 0.06 250);
+  --toast-info-accent: oklch(0.55 0.13 240);
+  --toast-info-icon: oklch(0.5 0.13 240);
+  --toast-info-title: oklch(0.32 0.08 250);
   --gradient-paper: linear-gradient(180deg, oklch(0.995 0.004 85) 0%, oklch(0.985 0.008 85) 100%);
   --gradient-accent: linear-gradient(135deg, oklch(0.5 0.13 265) 0%, oklch(0.6 0.12 290) 100%);
 }
@@ -179,6 +200,27 @@
 
   --shadow-soft: 0 1px 2px oklch(0 0 0 / 0.3), 0 4px 16px -4px oklch(0 0 0 / 0.4);
   --shadow-lift: 0 2px 4px oklch(0 0 0 / 0.35), 0 12px 32px -8px oklch(0 0 0 / 0.5);
+
+  --toast-success-bg: oklch(0.24 0.05 155);
+  --toast-success-border: oklch(0.38 0.08 155);
+  --toast-success-accent: oklch(0.62 0.14 155);
+  --toast-success-icon: oklch(0.68 0.14 155);
+  --toast-success-title: oklch(0.9 0.06 155);
+  --toast-error-bg: oklch(0.24 0.04 28);
+  --toast-error-border: oklch(0.38 0.08 28);
+  --toast-error-accent: oklch(0.62 0.17 28);
+  --toast-error-icon: oklch(0.7 0.16 28);
+  --toast-error-title: oklch(0.92 0.04 28);
+  --toast-warning-bg: oklch(0.26 0.04 75);
+  --toast-warning-border: oklch(0.4 0.07 75);
+  --toast-warning-accent: oklch(0.72 0.14 70);
+  --toast-warning-icon: oklch(0.78 0.14 70);
+  --toast-warning-title: oklch(0.92 0.05 75);
+  --toast-info-bg: oklch(0.24 0.03 250);
+  --toast-info-border: oklch(0.36 0.06 250);
+  --toast-info-accent: oklch(0.62 0.14 240);
+  --toast-info-icon: oklch(0.7 0.13 240);
+  --toast-info-title: oklch(0.9 0.04 250);
 }
 
 /* Theme presets (full UI variants). Applied on <html> as `theme-*`. */
@@ -448,4 +490,122 @@ button:disabled,
   100% {
     transform: translate3d(-50%, 0, 0);
   }
+}
+
+/* Sonner toasts — Alyson styled */
+[data-sonner-toaster] {
+  --width: 22rem;
+  font-family: var(--font-sans);
+}
+
+[data-sonner-toast].alyson-toast {
+  width: var(--width);
+  padding: 0.875rem 1rem 0.875rem 0.875rem;
+  gap: 0.625rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--paper);
+  color: var(--foreground);
+  box-shadow: var(--shadow-lift);
+  align-items: flex-start;
+}
+
+[data-sonner-toast] .alyson-toast-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+[data-sonner-toast] .alyson-toast-description {
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  margin-top: 0.125rem;
+}
+
+[data-sonner-toast].alyson-toast-success {
+  background: var(--toast-success-bg);
+  border-color: var(--toast-success-border);
+  border-left: 4px solid var(--toast-success-accent);
+  box-shadow:
+    0 2px 8px oklch(0.45 0.12 155 / 0.08),
+    0 12px 28px -10px oklch(0.45 0.12 155 / 0.18);
+}
+
+[data-sonner-toast].alyson-toast-success .alyson-toast-title {
+  color: var(--toast-success-title);
+}
+
+[data-sonner-toast].alyson-toast-error {
+  background: var(--toast-error-bg);
+  border-color: var(--toast-error-border);
+  border-left: 4px solid var(--toast-error-accent);
+  box-shadow:
+    0 2px 8px oklch(0.5 0.15 28 / 0.08),
+    0 12px 28px -10px oklch(0.5 0.15 28 / 0.16);
+}
+
+[data-sonner-toast].alyson-toast-error .alyson-toast-title {
+  color: var(--toast-error-title);
+}
+
+[data-sonner-toast].alyson-toast-warning {
+  background: var(--toast-warning-bg);
+  border-color: var(--toast-warning-border);
+  border-left: 4px solid var(--toast-warning-accent);
+}
+
+[data-sonner-toast].alyson-toast-warning .alyson-toast-title {
+  color: var(--toast-warning-title);
+}
+
+[data-sonner-toast].alyson-toast-info {
+  background: var(--toast-info-bg);
+  border-color: var(--toast-info-border);
+  border-left: 4px solid var(--toast-info-accent);
+}
+
+[data-sonner-toast].alyson-toast-info .alyson-toast-title {
+  color: var(--toast-info-title);
+}
+
+[data-sonner-toast] .alyson-toast-action {
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--foreground);
+  color: var(--background);
+  border: none;
+}
+
+[data-sonner-toast] .alyson-toast-cancel {
+  height: 1.75rem;
+  padding: 0 0.625rem;
+  border-radius: var(--radius-md);
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: transparent;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+}
+
+[data-sonner-toast] .alyson-toast-close {
+  top: 0.625rem;
+  right: 0.625rem;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  background: color-mix(in oklch, var(--foreground) 6%, transparent);
+  color: var(--muted-foreground);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+[data-sonner-toast] .alyson-toast-close:hover {
+  background: color-mix(in oklch, var(--foreground) 10%, transparent);
+  color: var(--foreground);
 }
