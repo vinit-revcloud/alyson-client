@@ -1,6 +1,7 @@
 import { canonicalOfficialEmail, emailLookupKeys } from "@/lib/cintara-email";
 import {
   findRosterEntryForEmployee,
+  type OrgChartRosterEntry,
   type OrgChartRosterLookup,
 } from "@/lib/org-chart-roster";
 
@@ -81,6 +82,73 @@ const PACING_ACTIVE_NO_EMAILS = new Set(
     "swapnil@cintara.ai",
   ].map((e) => e.toLowerCase()),
 );
+
+/** Sabtain Ashiq's sourcer team — only these show Active = Yes on weekly pacing. */
+const PACING_SABTAIN_TEAM_ACTIVE_NAMES = new Set(
+  [
+    "Abdullah Raheem",
+    "Arooj Fatima",
+    "Iqra Rafique",
+    "Mudassar Rafique",
+    "Mudasir Rafique",
+    "Muhammad Saqlain",
+    "Sabtain Ashiq",
+  ].map(normPersonName),
+);
+
+const PACING_SABTAIN_TEAM_ACTIVE_EMAILS = new Set(
+  [
+    "abdullah@cintara.ai",
+    "arooj@cintara.ai",
+    "iqra@cintara.ai",
+    "mudassar@cintara.ai",
+    "mudaser@cintara.ai",
+    "muhammadsaqlain@cintara.ai",
+    "saqlain@cintara.ai",
+    "sabtain@cintara.ai",
+  ].map((e) => e.toLowerCase()),
+);
+
+function managerIsSabtain(managerLabel: string): boolean {
+  const m = normPersonName(managerLabel);
+  return m === "sabtain" || m === "sabtain ashiq" || m.startsWith("sabtain ");
+}
+
+function isSabtainAshiqPerson(name: string): boolean {
+  const n = normPersonName(name);
+  return n === "sabtain ashiq" || (n.includes("sabtain") && n.includes("ashiq"));
+}
+
+function isSabtainTeamMember(
+  rosterEntry: OrgChartRosterEntry | null,
+  displayName: string,
+): boolean {
+  if (isSabtainAshiqPerson(displayName)) return true;
+  if (rosterEntry && isSabtainAshiqPerson(rosterEntry.name)) return true;
+  if (!rosterEntry) return false;
+  return managerIsSabtain(rosterEntry.managerLabel);
+}
+
+function matchesSabtainTeamActiveAllowlist(args: { email?: string; name?: string }): boolean {
+  const name = normPersonName(args.name ?? "");
+  if (name) {
+    if (PACING_SABTAIN_TEAM_ACTIVE_NAMES.has(name)) return true;
+    for (const allowed of PACING_SABTAIN_TEAM_ACTIVE_NAMES) {
+      if (name.includes(allowed) || allowed.includes(name)) return true;
+    }
+  }
+
+  const email = norm(args.email ?? "").toLowerCase();
+  if (email && PACING_SABTAIN_TEAM_ACTIVE_EMAILS.has(email)) return true;
+  if (email) {
+    const local = emailLocal(email);
+    for (const allowed of PACING_SABTAIN_TEAM_ACTIVE_EMAILS) {
+      if (emailLocal(allowed) === local) return true;
+    }
+  }
+
+  return false;
+}
 
 function isHardcodedPacingInactive(args: { email?: string; name?: string }): boolean {
   const name = normPersonName(args.name ?? "");
@@ -206,6 +274,11 @@ export function resolveCintaraActiveForPacing(
   }
 
   if (attempts.some((candidate) => isHardcodedPacingInactive(candidate))) return false;
+
+  const displayName = rosterEntry?.name || args.name;
+  if (isSabtainTeamMember(rosterEntry, displayName)) {
+    return attempts.some((candidate) => matchesSabtainTeamActiveAllowlist(candidate));
+  }
 
   return attempts.some((candidate) => isCintaraActiveMember(activeLookup, candidate));
 }

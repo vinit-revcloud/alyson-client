@@ -798,8 +798,8 @@ export type UnifiedUserScheduleSummary = UnifiedScheduleSummary & {
 };
 
 /**
- * Hourly automation: scan one calendar user's next 24h and schedule bots
- * `joinOffsetMinutes` before each meeting (default 10).
+ * Cron automation: scan one calendar user's next 24h and schedule bots
+ * `joinOffsetMinutes` before each meeting (default 10). Recall joins at that time.
  */
 export async function scheduleEligibleUnifiedBotsForUser(
   calendarUserEmail?: string,
