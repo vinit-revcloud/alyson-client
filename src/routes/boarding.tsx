@@ -146,6 +146,22 @@ function BoardingPage() {
           </div>
         </div>
 
+        <div className="surface-card p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="font-medium text-[13px]">Employee onboarding roster</h3>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              Full org chart onboarding table with S3 persistence (Super Admin edits).
+            </p>
+          </div>
+          <Link
+            to="/employee-onboarding"
+            className="h-8 px-3 rounded-md bg-foreground text-background text-[11.5px] font-medium inline-flex items-center gap-1.5 shrink-0"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Open onboarding module
+          </Link>
+        </div>
+
         <div className="flex flex-wrap gap-2 text-[12px]">
           <span className="text-muted-foreground mr-1 self-center">Shortcuts:</span>
           <Link

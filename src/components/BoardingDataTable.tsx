@@ -111,6 +111,7 @@ export function BoardingDataTable({
   canEdit = false,
   onRowsChange,
   rowIdKey = "_rowId",
+  hideAddButton = false,
 }: {
   title: string;
   description?: string;
@@ -124,6 +125,8 @@ export function BoardingDataTable({
   onRowsChange?: (next: Record<string, unknown>[]) => void;
   /** Property name that holds a stable row id */
   rowIdKey?: string;
+  /** Hide the built-in Add row button (use an external add action instead). */
+  hideAddButton?: boolean;
 }) {
   const [globalFilter, setGlobalFilter] = useState(initialFilter);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -294,7 +297,7 @@ export function BoardingDataTable({
               className="w-full h-8 px-3 rounded-md border border-border bg-background text-[13px]"
             />
           </div>
-          {isEditable && (
+          {isEditable && !hideAddButton && (
             <button
               type="button"
               disabled={!canEdit}

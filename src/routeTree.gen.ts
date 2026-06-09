@@ -21,6 +21,7 @@ import { Route as HelpRouteImport } from './routes/help'
 import { Route as HandoverDocumentationRouteImport } from './routes/handover-documentation'
 import { Route as EquityRouteImport } from './routes/equity'
 import { Route as EmployeeScoringRouteImport } from './routes/employee-scoring'
+import { Route as EmployeeOnboardingRouteImport } from './routes/employee-onboarding'
 import { Route as DocumentsRouteImport } from './routes/documents'
 import { Route as BoardingRouteImport } from './routes/boarding'
 import { Route as AuthRouteImport } from './routes/auth'
@@ -110,6 +111,11 @@ const EquityRoute = EquityRouteImport.update({
 const EmployeeScoringRoute = EmployeeScoringRouteImport.update({
   id: '/employee-scoring',
   path: '/employee-scoring',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EmployeeOnboardingRoute = EmployeeOnboardingRouteImport.update({
+  id: '/employee-onboarding',
+  path: '/employee-onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocumentsRoute = DocumentsRouteImport.update({
@@ -283,6 +289,7 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/boarding': typeof BoardingRoute
   '/documents': typeof DocumentsRoute
+  '/employee-onboarding': typeof EmployeeOnboardingRoute
   '/employee-scoring': typeof EmployeeScoringRouteWithChildren
   '/equity': typeof EquityRoute
   '/handover-documentation': typeof HandoverDocumentationRoute
@@ -325,6 +332,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/boarding': typeof BoardingRoute
   '/documents': typeof DocumentsRoute
+  '/employee-onboarding': typeof EmployeeOnboardingRoute
   '/employee-scoring': typeof EmployeeScoringRouteWithChildren
   '/equity': typeof EquityRoute
   '/handover-documentation': typeof HandoverDocumentationRoute
@@ -370,6 +378,7 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/boarding': typeof BoardingRoute
   '/documents': typeof DocumentsRoute
+  '/employee-onboarding': typeof EmployeeOnboardingRoute
   '/employee-scoring': typeof EmployeeScoringRouteWithChildren
   '/equity': typeof EquityRoute
   '/handover-documentation': typeof HandoverDocumentationRoute
@@ -416,6 +425,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/boarding'
     | '/documents'
+    | '/employee-onboarding'
     | '/employee-scoring'
     | '/equity'
     | '/handover-documentation'
@@ -458,6 +468,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/boarding'
     | '/documents'
+    | '/employee-onboarding'
     | '/employee-scoring'
     | '/equity'
     | '/handover-documentation'
@@ -502,6 +513,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/boarding'
     | '/documents'
+    | '/employee-onboarding'
     | '/employee-scoring'
     | '/equity'
     | '/handover-documentation'
@@ -547,6 +559,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   BoardingRoute: typeof BoardingRoute
   DocumentsRoute: typeof DocumentsRoute
+  EmployeeOnboardingRoute: typeof EmployeeOnboardingRoute
   EmployeeScoringRoute: typeof EmployeeScoringRouteWithChildren
   EquityRoute: typeof EquityRoute
   HandoverDocumentationRoute: typeof HandoverDocumentationRoute
@@ -648,6 +661,13 @@ declare module '@tanstack/react-router' {
       path: '/employee-scoring'
       fullPath: '/employee-scoring'
       preLoaderRoute: typeof EmployeeScoringRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/employee-onboarding': {
+      id: '/employee-onboarding'
+      path: '/employee-onboarding'
+      fullPath: '/employee-onboarding'
+      preLoaderRoute: typeof EmployeeOnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/documents': {
@@ -985,6 +1005,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   BoardingRoute: BoardingRoute,
   DocumentsRoute: DocumentsRoute,
+  EmployeeOnboardingRoute: EmployeeOnboardingRoute,
   EmployeeScoringRoute: EmployeeScoringRouteWithChildren,
   EquityRoute: EquityRoute,
   HandoverDocumentationRoute: HandoverDocumentationRoute,
