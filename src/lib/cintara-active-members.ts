@@ -1,4 +1,8 @@
 import { canonicalOfficialEmail, emailLookupKeys } from "@/lib/cintara-email";
+import {
+  findRosterEntryForEmployee,
+  type OrgChartRosterLookup,
+} from "@/lib/org-chart-roster";
 
 export type CintaraDomainEntry = {
   firstName: string;
@@ -25,10 +29,78 @@ function normPersonName(name: string) {
     .trim();
 }
 
+function nameTokens(name: string): string[] {
+  return normPersonName(name).split(" ").filter(Boolean);
+}
+
+/** Common roster vs workspace spelling variants for the same person. */
+function nameTokenEquivalent(a: string, b: string): boolean {
+  if (a === b) return true;
+  if ((a === "fouad" && b === "fawad") || (a === "fawad" && b === "fouad")) return true;
+  return false;
+}
+
+function allDomainNameTokensPresent(personName: string, domainName: string): boolean {
+  const domainTokens = nameTokens(domainName);
+  const personTokens = nameTokens(personName);
+  if (domainTokens.length < 2 || !personTokens.length) return false;
+  return domainTokens.every((dt) =>
+    personTokens.some((pt) => nameTokenEquivalent(dt, pt)),
+  );
+}
+
 function emailLocal(email: string) {
   const e = norm(email).toLowerCase();
   const at = e.indexOf("@");
   return at > 0 ? e.slice(0, at) : e;
+}
+
+/** Weekly pacing: force Active = No even when present on the Cintara domain list. */
+const PACING_ACTIVE_NO_NAMES = new Set(
+  [
+    "Hareem Farooq",
+    "Hassan Ali",
+    "Saba Imran",
+    "Vyankatesh Pete",
+    "Vyankatesh Dnyanoba Pete",
+    "Swapnil Thorat",
+    "Syed Muhammad Kumail",
+    "Syed M Kumail",
+  ].map(normPersonName),
+);
+
+const PACING_ACTIVE_NO_EMAILS = new Set(
+  [
+    "hareem@betterpeoplesupport.com",
+    "hareem@cintara.ai",
+    "hassan.ali@cintara.ai",
+    "hassan@cintara.ai",
+    "saba@cintara.ai",
+    "vyankatesh@cintara.ai",
+    "kumail@cintara.ai",
+    "swapnil@cintara.ai",
+  ].map((e) => e.toLowerCase()),
+);
+
+function isHardcodedPacingInactive(args: { email?: string; name?: string }): boolean {
+  const name = normPersonName(args.name ?? "");
+  if (name) {
+    if (PACING_ACTIVE_NO_NAMES.has(name)) return true;
+    for (const blocked of PACING_ACTIVE_NO_NAMES) {
+      if (name.includes(blocked) || blocked.includes(name)) return true;
+    }
+  }
+
+  const email = norm(args.email ?? "").toLowerCase();
+  if (email && PACING_ACTIVE_NO_EMAILS.has(email)) return true;
+  if (email) {
+    const local = emailLocal(email);
+    for (const blocked of PACING_ACTIVE_NO_EMAILS) {
+      if (emailLocal(blocked) === local) return true;
+    }
+  }
+
+  return false;
 }
 
 export function parseCintaraDomainCsv(csv: string): CintaraDomainEntry[] {
@@ -65,7 +137,7 @@ export function buildCintaraActiveMemberLookup(entries: CintaraDomainEntry[]): C
   return { byEmail, byLocalPart, byName, entries };
 }
 
-function matchActiveByName(name: string, entries: CintaraDomainEntry[]): boolean {
+export function matchActiveByName(name: string, entries: CintaraDomainEntry[]): boolean {
   const nn = normPersonName(name);
   if (!nn) return false;
   if (entries.some((e) => normPersonName(`${e.firstName} ${e.lastName}`) === nn)) return true;
@@ -75,27 +147,67 @@ function matchActiveByName(name: string, entries: CintaraDomainEntry[]): boolean
     if (!cName) return false;
     if (nn.includes(cName) || cName.includes(nn)) return true;
     const parts = cName.split(" ").filter(Boolean);
-    return parts.length >= 2 && parts.every((p) => nn.includes(p));
+    if (parts.length >= 2 && parts.every((p) => nn.includes(p))) return true;
+    return allDomainNameTokensPresent(name, cName);
   });
+}
+
+function findDomainEntryByEmail(
+  lookup: CintaraActiveMemberLookup,
+  email: string,
+): CintaraDomainEntry | undefined {
+  for (const key of emailLookupKeys(email)) {
+    if (key.includes("@")) {
+      const entry = lookup.entries.find((e) => e.email === key);
+      if (entry) return entry;
+    } else if (lookup.byLocalPart.has(key)) {
+      const entry = lookup.entries.find((e) => emailLocal(e.email) === key);
+      if (entry) return entry;
+    }
+  }
+
+  const canonical = canonicalOfficialEmail(email);
+  return lookup.entries.find(
+    (e) => e.email === canonical || emailLocal(e.email) === emailLocal(canonical),
+  );
 }
 
 export function isCintaraActiveMember(
   lookup: CintaraActiveMemberLookup,
   args: { email?: string; name?: string },
 ): boolean {
+  const name = norm(args.name ?? "");
+  if (name && matchActiveByName(name, lookup.entries)) return true;
+
   const email = norm(args.email ?? "").toLowerCase();
-  if (email && email !== "no email found") {
-    for (const key of emailLookupKeys(email)) {
-      if (key.includes("@") && lookup.byEmail.has(key)) return true;
-      if (!key.includes("@") && lookup.byLocalPart.has(key)) return true;
-    }
-    const canonical = canonicalOfficialEmail(email);
-    if (lookup.byEmail.has(canonical) || lookup.byLocalPart.has(emailLocal(canonical))) {
-      return true;
-    }
+  if (!email || email === "no email found") return false;
+
+  const domainEntry = findDomainEntryByEmail(lookup, email);
+  if (!domainEntry) return false;
+
+  // Mailbox is on the domain — confirm identity when a name is available.
+  if (!name) return true;
+  return matchActiveByName(name, [domainEntry]);
+}
+
+/** Active flag for weekly pacing: match via Time Doctor identity and org roster official email. */
+export function resolveCintaraActiveForPacing(
+  activeLookup: CintaraActiveMemberLookup,
+  rosterLookup: OrgChartRosterLookup,
+  args: { email: string; name: string },
+): boolean {
+  const attempts: { email?: string; name?: string }[] = [
+    { email: args.email, name: args.name },
+  ];
+
+  const rosterEntry = findRosterEntryForEmployee(args.email, args.name, rosterLookup);
+  if (rosterEntry) {
+    attempts.push({ email: rosterEntry.email, name: rosterEntry.name });
   }
 
-  return matchActiveByName(args.name ?? "", lookup.entries);
+  if (attempts.some((candidate) => isHardcodedPacingInactive(candidate))) return false;
+
+  return attempts.some((candidate) => isCintaraActiveMember(activeLookup, candidate));
 }
 
 export function formatActiveLabel(active: boolean): "Yes" | "No" {

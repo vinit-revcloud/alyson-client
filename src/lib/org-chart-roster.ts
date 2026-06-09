@@ -5,6 +5,7 @@ export { canonicalOfficialEmail } from "@/lib/cintara-email";
 export type OrgChartRosterEntry = {
   name: string;
   email: string;
+  personalEmail?: string;
   team: string;
   managerLabel: string;
 };
@@ -99,11 +100,13 @@ export function parseOrgChartRosterCsv(csv: string): OrgChartRosterEntry[] {
   for (const line of lines.slice(1)) {
     const cols = line.split(",");
     const name = String(cols[idx["Name"] ?? 0] ?? "").trim();
+    const personalEmail = normEmail(String(cols[idx["Email ID"] ?? 2] ?? ""));
     const officialEmail = String(cols[idx["Official Email"] ?? 3] ?? "").trim();
     if (!isValidOfficialEmail(officialEmail)) continue;
     entries.push({
       name: name || officialEmail.split("@")[0] || officialEmail,
       email: canonicalOfficialEmail(officialEmail),
+      personalEmail: personalEmail.includes("@") ? personalEmail : undefined,
       team: String(cols[idx["Team"] ?? 4] ?? "").trim(),
       managerLabel: String(cols[idx["Manager"] ?? 5] ?? "").trim(),
     });
@@ -131,6 +134,11 @@ export function buildOrgChartRosterLookup(entries: OrgChartRosterEntry[]): OrgCh
     byEmail.set(e.email, e);
     const local = emailLocal(e.email);
     if (local) byLocalPart.set(local, e);
+    if (e.personalEmail) {
+      byEmail.set(e.personalEmail, e);
+      const personalLocal = emailLocal(e.personalEmail);
+      if (personalLocal) byLocalPart.set(personalLocal, e);
+    }
     const nn = norm(e.name);
     if (nn) {
       byNormalizedName.set(nn, e);
@@ -202,7 +210,16 @@ export function resolveManagersFromLabel(
   };
 }
 
-function findRosterEntry(email: string, lookup: OrgChartRosterLookup): OrgChartRosterEntry | null {
+export function findRosterEntry(email: string, lookup: OrgChartRosterLookup): OrgChartRosterEntry | null {
+  const raw = normEmail(email);
+  if (raw) {
+    const byRaw = lookup.byEmail.get(raw);
+    if (byRaw) return byRaw;
+    const rawLocal = emailLocal(raw);
+    const byRawLocal = rawLocal ? lookup.byLocalPart.get(rawLocal) : undefined;
+    if (byRawLocal) return byRawLocal;
+  }
+
   const e = canonicalOfficialEmail(email);
   if (!e) return null;
   const direct = lookup.byEmail.get(e);
@@ -211,7 +228,7 @@ function findRosterEntry(email: string, lookup: OrgChartRosterLookup): OrgChartR
   return lookup.byLocalPart.get(local) ?? null;
 }
 
-function findRosterEntryByName(name: string, lookup: OrgChartRosterLookup): OrgChartRosterEntry | null {
+export function findRosterEntryByName(name: string, lookup: OrgChartRosterLookup): OrgChartRosterEntry | null {
   const key = norm(name);
   if (!key) return null;
 
@@ -239,6 +256,15 @@ export function resolveManagerForEmployeeEmail(
   const entry = findRosterEntry(email, lookup);
   if (!entry?.managerLabel) return { managerName: null, managerEmail: null };
   return resolveManagersFromLabel(entry.managerLabel, lookup);
+}
+
+/** Resolve org roster row from Time Doctor email and/or display name. */
+export function findRosterEntryForEmployee(
+  email: string,
+  name: string,
+  lookup: OrgChartRosterLookup,
+): OrgChartRosterEntry | null {
+  return findRosterEntry(email, lookup) ?? findRosterEntryByName(name, lookup);
 }
 
 export function attachManagerToPacingRow<T extends { email: string; name?: string }>(

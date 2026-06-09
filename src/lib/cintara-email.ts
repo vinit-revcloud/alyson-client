@@ -25,6 +25,8 @@ const EMAIL_LOCAL_ALIASES: Record<string, string> = {
   "farhan.tariq": "farhan",
   "aryan.sawant": "aryan",
   ahsanzafar: "ahsan",
+  "hassan.ali": "hassan",
+  shumailzehra: "shumail",
 };
 
 const EMAIL_LOCAL_ALIASES_REVERSE = Object.fromEntries(

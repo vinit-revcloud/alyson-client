@@ -1935,7 +1935,7 @@ export async function buildWeeklyPacingReport(args?: { targetHours?: number; day
 
   const { attachManagerToPacingRow } = await import("@/lib/org-chart-roster");
   const { getOrgChartRosterLookup } = await import("@/lib/org-chart-roster.server");
-  const { isCintaraActiveMember } = await import("@/lib/cintara-active-members");
+  const { resolveCintaraActiveForPacing } = await import("@/lib/cintara-active-members");
   const { getCintaraActiveMemberLookup } = await import("@/lib/cintara-active-members.server");
   const rosterLookup = getOrgChartRosterLookup();
   const activeLookup = getCintaraActiveMemberLookup();
@@ -1962,7 +1962,7 @@ export async function buildWeeklyPacingReport(args?: { targetHours?: number; day
       const withManager = attachManagerToPacingRow(row, rosterLookup);
       return {
         ...withManager,
-        active: isCintaraActiveMember(activeLookup, {
+        active: resolveCintaraActiveForPacing(activeLookup, rosterLookup, {
           email: withManager.email,
           name: withManager.name,
         }),
