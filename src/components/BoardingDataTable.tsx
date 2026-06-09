@@ -112,6 +112,10 @@ export function BoardingDataTable({
   onRowsChange,
   rowIdKey = "_rowId",
   hideAddButton = false,
+  deleteConfirmNameKey,
+  deleteConfirmIdKey,
+  readOnlyCells = false,
+  onEditRow,
 }: {
   title: string;
   description?: string;
@@ -127,6 +131,13 @@ export function BoardingDataTable({
   rowIdKey?: string;
   /** Hide the built-in Add row button (use an external add action instead). */
   hideAddButton?: boolean;
+  /** Show this column's value in the delete confirmation dialog. */
+  deleteConfirmNameKey?: string;
+  /** Optional secondary id shown in delete confirmation (e.g. Employee ID). */
+  deleteConfirmIdKey?: string;
+  /** Read-only table cells; use with onEditRow for form-based editing. */
+  readOnlyCells?: boolean;
+  onEditRow?: (rowId: string) => void;
 }) {
   const [globalFilter, setGlobalFilter] = useState(initialFilter);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -160,9 +171,9 @@ export function BoardingDataTable({
       const next = current.filter((r) => String(r[rowIdKey] ?? "") !== rowId);
       rowsRef.current = next;
       onRowsChange(next);
-      toast.success("Row deleted");
+      if (!deleteConfirmNameKey) toast.success("Row deleted");
     },
-    [onRowsChange, rowIdKey],
+    [deleteConfirmNameKey, onRowsChange, rowIdKey],
   );
 
   const addRow = useCallback(() => {
@@ -188,19 +199,32 @@ export function BoardingDataTable({
                 cell: (info) => {
                   const rowId = info.row.id;
                   return (
-                    <button
-                      type="button"
-                      disabled={!canEdit}
-                      onClick={() => {
-                        setDeleteRowId(rowId);
-                        setDeleteTyped("");
-                        setDeleteOpen(true);
-                      }}
-                      className="h-7 px-2 rounded-md border border-border text-[11.5px] text-muted-foreground hover:text-foreground disabled:opacity-60 cursor-pointer"
-                      title={canEdit ? "Delete row" : "Super Admin only"}
-                    >
-                      Delete
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {onEditRow ? (
+                        <button
+                          type="button"
+                          disabled={!canEdit}
+                          onClick={() => onEditRow(rowId)}
+                          className="h-7 px-2 rounded-md border border-border text-[11.5px] text-muted-foreground hover:text-foreground disabled:opacity-60 cursor-pointer"
+                          title={canEdit ? "Edit row" : "Super Admin only"}
+                        >
+                          Edit
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() => {
+                          setDeleteRowId(rowId);
+                          setDeleteTyped("");
+                          setDeleteOpen(true);
+                        }}
+                        className="h-7 px-2 rounded-md border border-border text-[11.5px] text-muted-foreground hover:text-destructive disabled:opacity-60 cursor-pointer"
+                        title={canEdit ? "Delete row" : "Super Admin only"}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   );
                 },
               } satisfies ColumnDef<Record<string, unknown>>,
@@ -217,7 +241,7 @@ export function BoardingDataTable({
                 const v = info.getValue();
                 const t = toText(v);
 
-                if (!isEditable) return t.trim() ? t : "—";
+                if (!isEditable || readOnlyCells) return t.trim() ? t : "—";
 
                 const value = t;
                 const isLong = value.length > 42 || c.toLowerCase().includes("notes") || c.toLowerCase().includes("details") || c.toLowerCase().includes("comments");
@@ -260,8 +284,18 @@ export function BoardingDataTable({
             }) satisfies ColumnDef<Record<string, unknown>>,
         ),
       ],
-    [canEdit, columns, deleteRow, isEditable, updateCell],
+    [canEdit, columns, isEditable, onEditRow, readOnlyCells, updateCell],
   );
+
+  const deleteTarget = useMemo(() => {
+    if (!deleteRowId) return null;
+    return rows.find((r) => String(r[rowIdKey] ?? "") === deleteRowId) ?? null;
+  }, [deleteRowId, rowIdKey, rows]);
+
+  const deleteTargetName = deleteConfirmNameKey
+    ? toText(deleteTarget?.[deleteConfirmNameKey]).trim()
+    : "";
+  const deleteTargetId = deleteConfirmIdKey ? toText(deleteTarget?.[deleteConfirmIdKey]).trim() : "";
 
   const table = useReactTable({
     data: rows,
@@ -377,8 +411,25 @@ export function BoardingDataTable({
             <AlertDialog.Overlay className="fixed inset-0 bg-black/40 z-50" />
             <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[92vw] max-w-md surface-card p-4">
               <AlertDialog.Title className="font-medium text-[14px]">Confirm deletion</AlertDialog.Title>
-              <AlertDialog.Description className="text-[12px] text-muted-foreground mt-1">
-                Type <span className="font-mono text-[11px] px-1 rounded bg-muted">CONFIRM</span> to delete this row.
+              <AlertDialog.Description asChild>
+                <div className="mt-1 space-y-2">
+                  {deleteTargetName ? (
+                    <p className="text-[13px] text-foreground">
+                      You are about to remove{" "}
+                      <span className="font-semibold">{deleteTargetName}</span>
+                      {deleteTargetId ? (
+                        <span className="text-muted-foreground"> ({deleteTargetId})</span>
+                      ) : null}{" "}
+                      from the onboarding roster.
+                    </p>
+                  ) : (
+                    <p className="text-[12px] text-muted-foreground">You are about to delete this row.</p>
+                  )}
+                  <p className="text-[12px] text-muted-foreground">
+                    Type <span className="font-mono text-[11px] px-1 rounded bg-muted">CONFIRM</span> to
+                    continue.
+                  </p>
+                </div>
               </AlertDialog.Description>
 
               <div className="mt-3">

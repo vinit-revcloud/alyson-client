@@ -6,10 +6,10 @@ import { toast } from "sonner";
 import { PageHeader } from "@/components/AppShell";
 import { FetchingBar } from "@/components/Skeleton";
 import { BoardingDataTable } from "@/components/BoardingDataTable";
+import { OnboardingEmployeeFormDrawer } from "@/components/OnboardingEmployeeFormDrawer";
 import { useAuth } from "@/lib/auth";
-import { ONBOARDING_COLUMNS } from "@/lib/onboarding-schema";
+import { blankOnboardingRow, ONBOARDING_COLUMNS, type OnboardingRow } from "@/lib/onboarding-schema";
 import {
-  addOnboardingUser,
   deleteOnboardingUser,
   getOnboardingRoster,
   saveOnboardingRoster,
@@ -21,6 +21,10 @@ export const Route = createFileRoute("/employee-onboarding")({
 });
 
 const QUERY_KEY = ["employee-onboarding"];
+
+function asOnboardingRow(row: Record<string, unknown>): OnboardingRow {
+  return row as OnboardingRow;
+}
 
 function EmployeeOnboardingPage() {
   const auth = useAuth();
@@ -35,8 +39,11 @@ function EmployeeOnboardingPage() {
 
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
   const rowsRef = useRef(rows);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rowsDirty = useRef(false);
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [formMode, setFormMode] = useState<"add" | "edit">("add");
+  const [formRow, setFormRow] = useState<OnboardingRow | null>(null);
 
   useEffect(() => {
     rowsRef.current = rows;
@@ -68,23 +75,12 @@ function EmployeeOnboardingPage() {
       }),
     onSuccess: (_data, variables) => {
       rowsDirty.current = false;
-      if (variables.op === "update") {
+      if (variables.op === "update" || variables.op === "create") {
         toast.success("Data persisted");
       }
       void qc.invalidateQueries({ queryKey: QUERY_KEY });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save to S3"),
-  });
-
-  const addM = useMutation({
-    mutationFn: async () => addOnboardingUser({ data: { actor } }),
-    onSuccess: (r) => {
-      rowsDirty.current = false;
-      setRows(r.rows as Record<string, unknown>[]);
-      toast.success("New onboarding user added");
-      void qc.invalidateQueries({ queryKey: QUERY_KEY });
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to add user"),
   });
 
   const deleteM = useMutation({
@@ -107,12 +103,64 @@ function EmployeeOnboardingPage() {
       if (!canEdit) return;
       setRows(next);
       rowsDirty.current = true;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        saveM.mutate({ rows: next, ...meta });
-      }, 600);
+      saveM.mutate({ rows: next, ...meta });
     },
     [canEdit, saveM],
+  );
+
+  const openAddForm = useCallback(() => {
+    if (!canEdit) {
+      toast.error("Super Admin only");
+      return;
+    }
+    setFormMode("add");
+    setFormRow(blankOnboardingRow());
+    setFormOpen(true);
+  }, [canEdit]);
+
+  const openEditForm = useCallback(
+    (rowId: string) => {
+      if (!canEdit) {
+        toast.error("Super Admin only");
+        return;
+      }
+      const row = rowsRef.current.find((r) => String(r._rowId ?? "") === rowId);
+      if (!row) {
+        toast.error("Row not found");
+        return;
+      }
+      setFormMode("edit");
+      setFormRow(asOnboardingRow({ ...row }));
+      setFormOpen(true);
+    },
+    [canEdit],
+  );
+
+  const handleFormSave = useCallback(
+    (row: OnboardingRow) => {
+      const employeeId = String(row["Employee ID"] ?? row._rowId ?? "").trim();
+      if (formMode === "add") {
+        const next = [row, ...rowsRef.current];
+        persistRows(next, {
+          op: "create",
+          employeeId,
+          details: `Added onboarding row for ${row.Name || employeeId}`,
+        });
+        toast.success(`Added ${row.Name || "employee"}`);
+      } else {
+        const next = rowsRef.current.map((r) =>
+          String(r._rowId ?? "") === String(row._rowId ?? "") ? row : r,
+        );
+        persistRows(next, {
+          op: "update",
+          employeeId,
+          details: `Updated onboarding row for ${row.Name || employeeId}`,
+        });
+      }
+      setFormOpen(false);
+      setFormRow(null);
+    },
+    [formMode, persistRows],
   );
 
   const handleRowsChange = useCallback(
@@ -138,10 +186,8 @@ function EmployeeOnboardingPage() {
         });
         return;
       }
-
-      persistRows(next, { op: "update" });
     },
-    [canEdit, deleteM, persistRows],
+    [canEdit, deleteM],
   );
 
   const columns = useMemo(() => [...ONBOARDING_COLUMNS], []);
@@ -160,7 +206,7 @@ function EmployeeOnboardingPage() {
       />
 
       <div className="px-5 md:px-8 py-6 space-y-5">
-        <FetchingBar active={(q.isFetching && !q.data) || saveM.isPending || addM.isPending || deleteM.isPending} />
+        <FetchingBar active={(q.isFetching && !q.data) || saveM.isPending || deleteM.isPending} />
 
         <div className="flex flex-wrap items-center gap-2 text-[12px]">
           <span className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -183,13 +229,13 @@ function EmployeeOnboardingPage() {
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={!canEdit || addM.isPending}
-            onClick={() => addM.mutate()}
+            disabled={!canEdit || saveM.isPending}
+            onClick={openAddForm}
             className="h-8 px-3 rounded-md bg-foreground text-background text-[11.5px] font-medium inline-flex items-center gap-1.5 disabled:opacity-60"
             title={canEdit ? "Add a new onboarding user" : "Super Admin only"}
           >
             <UserPlus className="h-3.5 w-3.5" />
-            {addM.isPending ? "Adding…" : "Add user"}
+            Add user
           </button>
           <Link
             to="/boarding"
@@ -208,17 +254,33 @@ function EmployeeOnboardingPage() {
         {!q.isLoading && (
           <BoardingDataTable
             title="Onboarding roster"
-            description="All fields from the org chart onboarding sheet. Changes sync to S3 automatically."
+            description="Click Edit to update a row in the form drawer. Changes sync to S3 on save."
             columns={columns}
             rows={rows}
             editable
             canEdit={canEdit}
+            readOnlyCells
+            onEditRow={openEditForm}
             onRowsChange={handleRowsChange}
             rowIdKey="_rowId"
             hideAddButton
+            deleteConfirmNameKey="Name"
+            deleteConfirmIdKey="Employee ID"
           />
         )}
       </div>
+
+      <OnboardingEmployeeFormDrawer
+        open={formOpen}
+        mode={formMode}
+        initialRow={formRow}
+        saving={saveM.isPending}
+        onClose={() => {
+          setFormOpen(false);
+          setFormRow(null);
+        }}
+        onSave={handleFormSave}
+      />
     </div>
   );
 }
