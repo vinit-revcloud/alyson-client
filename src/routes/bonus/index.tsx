@@ -45,6 +45,7 @@ function BonusEmployeesPage() {
     onSuccess: () => {
       toast.success("Synced employee roster from onboarding");
       void qc.invalidateQueries({ queryKey: QUERY_KEY });
+      void qc.invalidateQueries({ queryKey: ["bonus-analytics"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Sync failed"),
   });
@@ -61,6 +62,7 @@ function BonusEmployeesPage() {
       toast.success(`Recorded ${fmtCurrency(r.event.amountUsd)} bonus`);
       setSelected(r.ledger);
       void qc.invalidateQueries({ queryKey: QUERY_KEY });
+      void qc.invalidateQueries({ queryKey: ["bonus-analytics"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to record bonus"),
   });
@@ -78,6 +80,7 @@ function BonusEmployeesPage() {
       toast.success("Share event recorded");
       setSelected(r.ledger);
       void qc.invalidateQueries({ queryKey: QUERY_KEY });
+      void qc.invalidateQueries({ queryKey: ["bonus-analytics"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to record share event"),
   });
@@ -90,6 +93,7 @@ function BonusEmployeesPage() {
       setSelected(r.ledger);
       void qc.invalidateQueries({ queryKey: QUERY_KEY });
       void qc.invalidateQueries({ queryKey: ["bonus-audit-log"] });
+      void qc.invalidateQueries({ queryKey: ["bonus-analytics"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete bonus"),
   });
@@ -102,6 +106,7 @@ function BonusEmployeesPage() {
       setSelected(r.ledger);
       void qc.invalidateQueries({ queryKey: QUERY_KEY });
       void qc.invalidateQueries({ queryKey: ["bonus-audit-log"] });
+      void qc.invalidateQueries({ queryKey: ["bonus-analytics"] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete share event"),
   });

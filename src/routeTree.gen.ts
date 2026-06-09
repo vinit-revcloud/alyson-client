@@ -41,6 +41,7 @@ import { Route as BonusSimulateRouteImport } from './routes/bonus/simulate'
 import { Route as BonusPlansRouteImport } from './routes/bonus/plans'
 import { Route as BonusAuditRouteImport } from './routes/bonus/audit'
 import { Route as BonusApprovalsRouteImport } from './routes/bonus/approvals'
+import { Route as BonusAnalyticsRouteImport } from './routes/bonus/analytics'
 import { Route as AlysonNotetakerUnifiedMeetingsRouteImport } from './routes/alyson-notetaker/unified-meetings'
 import { Route as AlysonNotetakerTasksRouteImport } from './routes/alyson-notetaker/tasks'
 import { Route as AlysonNotetakerCalendarRouteImport } from './routes/alyson-notetaker/calendar'
@@ -215,6 +216,11 @@ const BonusApprovalsRoute = BonusApprovalsRouteImport.update({
   path: '/approvals',
   getParentRoute: () => BonusRouteRoute,
 } as any)
+const BonusAnalyticsRoute = BonusAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => BonusRouteRoute,
+} as any)
 const AlysonNotetakerUnifiedMeetingsRoute =
   AlysonNotetakerUnifiedMeetingsRouteImport.update({
     id: '/unified-meetings',
@@ -306,6 +312,7 @@ export interface FileRoutesByFullPath {
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/alyson-notetaker/tasks': typeof AlysonNotetakerTasksRoute
   '/alyson-notetaker/unified-meetings': typeof AlysonNotetakerUnifiedMeetingsRoute
+  '/bonus/analytics': typeof BonusAnalyticsRoute
   '/bonus/approvals': typeof BonusApprovalsRoute
   '/bonus/audit': typeof BonusAuditRoute
   '/bonus/plans': typeof BonusPlansRoute
@@ -349,6 +356,7 @@ export interface FileRoutesByTo {
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/alyson-notetaker/tasks': typeof AlysonNotetakerTasksRoute
   '/alyson-notetaker/unified-meetings': typeof AlysonNotetakerUnifiedMeetingsRoute
+  '/bonus/analytics': typeof BonusAnalyticsRoute
   '/bonus/approvals': typeof BonusApprovalsRoute
   '/bonus/audit': typeof BonusAuditRoute
   '/bonus/plans': typeof BonusPlansRoute
@@ -395,6 +403,7 @@ export interface FileRoutesById {
   '/alyson-notetaker/calendar': typeof AlysonNotetakerCalendarRoute
   '/alyson-notetaker/tasks': typeof AlysonNotetakerTasksRoute
   '/alyson-notetaker/unified-meetings': typeof AlysonNotetakerUnifiedMeetingsRoute
+  '/bonus/analytics': typeof BonusAnalyticsRoute
   '/bonus/approvals': typeof BonusApprovalsRoute
   '/bonus/audit': typeof BonusAuditRoute
   '/bonus/plans': typeof BonusPlansRoute
@@ -442,6 +451,7 @@ export interface FileRouteTypes {
     | '/alyson-notetaker/calendar'
     | '/alyson-notetaker/tasks'
     | '/alyson-notetaker/unified-meetings'
+    | '/bonus/analytics'
     | '/bonus/approvals'
     | '/bonus/audit'
     | '/bonus/plans'
@@ -485,6 +495,7 @@ export interface FileRouteTypes {
     | '/alyson-notetaker/calendar'
     | '/alyson-notetaker/tasks'
     | '/alyson-notetaker/unified-meetings'
+    | '/bonus/analytics'
     | '/bonus/approvals'
     | '/bonus/audit'
     | '/bonus/plans'
@@ -530,6 +541,7 @@ export interface FileRouteTypes {
     | '/alyson-notetaker/calendar'
     | '/alyson-notetaker/tasks'
     | '/alyson-notetaker/unified-meetings'
+    | '/bonus/analytics'
     | '/bonus/approvals'
     | '/bonus/audit'
     | '/bonus/plans'
@@ -803,6 +815,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BonusApprovalsRouteImport
       parentRoute: typeof BonusRouteRoute
     }
+    '/bonus/analytics': {
+      id: '/bonus/analytics'
+      path: '/analytics'
+      fullPath: '/bonus/analytics'
+      preLoaderRoute: typeof BonusAnalyticsRouteImport
+      parentRoute: typeof BonusRouteRoute
+    }
     '/alyson-notetaker/unified-meetings': {
       id: '/alyson-notetaker/unified-meetings'
       path: '/unified-meetings'
@@ -918,6 +937,7 @@ const AlysonNotetakerRouteRouteWithChildren =
   AlysonNotetakerRouteRoute._addFileChildren(AlysonNotetakerRouteRouteChildren)
 
 interface BonusRouteRouteChildren {
+  BonusAnalyticsRoute: typeof BonusAnalyticsRoute
   BonusApprovalsRoute: typeof BonusApprovalsRoute
   BonusAuditRoute: typeof BonusAuditRoute
   BonusPlansRoute: typeof BonusPlansRoute
@@ -926,6 +946,7 @@ interface BonusRouteRouteChildren {
 }
 
 const BonusRouteRouteChildren: BonusRouteRouteChildren = {
+  BonusAnalyticsRoute: BonusAnalyticsRoute,
   BonusApprovalsRoute: BonusApprovalsRoute,
   BonusAuditRoute: BonusAuditRoute,
   BonusPlansRoute: BonusPlansRoute,

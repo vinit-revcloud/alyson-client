@@ -8,6 +8,7 @@ import {
   voidBonusCashEvent,
   voidShareLedgerEvent,
 } from "@/lib/bonus-s3.server";
+import { buildBonusAnalyticsReport } from "@/lib/bonus-analytics";
 import type { EmployeeCompensationLedger } from "@/lib/bonus-schema";
 
 const actorSchema = z.object({
@@ -119,6 +120,12 @@ export const voidShareEvent = createServerFn({ method: "POST" })
     });
     return { removed: result.removed, ledger: result.ledger };
   });
+
+export const getBonusAnalytics = createServerFn({ method: "GET" }).handler(async () => {
+  const data = await ensureBonusOnS3();
+  const ledgers = ledgersToArray(data.employees);
+  return buildBonusAnalyticsReport(ledgers, data.updatedAt);
+});
 
 export const getBonusAuditLog = createServerFn({ method: "GET" }).handler(async () => {
   const log = await getBonusOperationsLog(300);

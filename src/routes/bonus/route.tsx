@@ -1,5 +1,5 @@
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
-import { Gift, FileText } from "lucide-react";
+import { BarChart3, Gift, FileText } from "lucide-react";
 
 import { useAuth } from "@/lib/auth";
 
@@ -33,6 +33,7 @@ function BonusLayout() {
 
         <div className="shrink-0 flex items-center gap-2 flex-wrap">
           <Tab to="/bonus" label="Employees" />
+          <Tab to="/bonus/analytics" label="Analytics" icon={BarChart3} />
           <Tab to="/bonus/audit" label="Audit log" icon={FileText} />
         </div>
       </div>
@@ -47,7 +48,7 @@ function Tab({
   label,
   icon: Icon,
 }: {
-  to: "/bonus" | "/bonus/audit";
+  to: "/bonus" | "/bonus/analytics" | "/bonus/audit";
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
 }) {
