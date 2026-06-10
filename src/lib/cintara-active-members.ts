@@ -59,6 +59,7 @@ function emailLocal(email: string) {
 /** Weekly pacing: force Active = No even when present on the Cintara domain list. */
 const PACING_ACTIVE_NO_NAMES = new Set(
   [
+    "Aaradhya Badal",
     "Hareem Farooq",
     "Hassan Ali",
     "Saba Imran",
@@ -72,6 +73,7 @@ const PACING_ACTIVE_NO_NAMES = new Set(
 
 const PACING_ACTIVE_NO_EMAILS = new Set(
   [
+    "aaradhya@cintara.ai",
     "hareem@betterpeoplesupport.com",
     "hareem@cintara.ai",
     "hassan.ali@cintara.ai",

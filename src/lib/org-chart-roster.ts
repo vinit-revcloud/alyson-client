@@ -79,6 +79,21 @@ function normEmail(email: string) {
   return String(email || "").trim().toLowerCase();
 }
 
+/** True when two roster display names likely refer to the same person. */
+function rosterNamesLikelySame(a: string, b: string): boolean {
+  const na = norm(a);
+  const nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  if (na.includes(nb) || nb.includes(na)) return true;
+  const aFirst = na.split(" ")[0] ?? "";
+  const bFirst = nb.split(" ")[0] ?? "";
+  if (!aFirst || aFirst !== bFirst) return false;
+  const aRest = na.split(" ").slice(1).join(" ");
+  const bRest = nb.split(" ").slice(1).join(" ");
+  return Boolean(aRest && bRest && (aRest.includes(bRest) || bRest.includes(aRest)));
+}
+
 function emailLocal(email: string) {
   const e = normEmail(email);
   const at = e.indexOf("@");
@@ -267,7 +282,15 @@ export function findRosterEntryForEmployee(
   name: string,
   lookup: OrgChartRosterLookup,
 ): OrgChartRosterEntry | null {
-  return findRosterEntry(email, lookup) ?? findRosterEntryByName(name, lookup);
+  const trimmedName = String(name || "").trim();
+  const byName = trimmedName ? findRosterEntryByName(trimmedName, lookup) : null;
+  const byEmail = findRosterEntry(email, lookup);
+
+  if (byName && byEmail && !rosterNamesLikelySame(byName.name, byEmail.name)) {
+    return byName;
+  }
+
+  return byEmail ?? byName;
 }
 
 export type OrgChartPacingFields = OrgChartManagerInfo & {
@@ -304,6 +327,12 @@ export function mergeOrgChartRosterEntries(
     if (!row.email) continue;
     const existing = byEmail.get(row.email);
     if (existing) {
+      if (!rosterNamesLikelySame(existing.name, row.name)) {
+        // Legacy email aliases can map two people to one mailbox — keep both rows.
+        const personalKey = normEmail(row.personalEmail || "");
+        if (personalKey.includes("@")) byEmail.set(personalKey, row);
+        continue;
+      }
       if (row.location) existing.location = row.location;
       if (row.team) existing.team = row.team;
       if (row.managerLabel) existing.managerLabel = row.managerLabel;
