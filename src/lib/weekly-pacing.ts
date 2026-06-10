@@ -74,6 +74,32 @@ export type WeeklyPacingReport = {
   warnings: string[];
 };
 
+export type WeeklyHoursTrendPoint = {
+  weekStart: string;
+  weekEnd: string;
+  weekLabel: string;
+  employeeCount: number;
+  avgHoursWorked: number;
+  totalHoursWorked: number;
+  isCurrentWeek: boolean;
+};
+
+export type WeeklyHoursTrendReport = {
+  company: { id: string; name: string };
+  targetHours: number;
+  timeZoneLabel: string;
+  weekCount: number;
+  filters: { location: string; team: string; active: string };
+  points: WeeklyHoursTrendPoint[];
+  /** Average of all weeks before the latest point. */
+  priorAverageHours: number;
+  latestWeek: WeeklyHoursTrendPoint | null;
+  liftHours: number;
+  liftPct: number;
+  generatedAt: string;
+  warnings: string[];
+};
+
 function parseIso(iso: string): Date {
   return new Date(`${iso}T12:00:00Z`);
 }

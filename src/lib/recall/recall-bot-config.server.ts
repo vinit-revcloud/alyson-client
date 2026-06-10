@@ -1,12 +1,31 @@
+function looksLikeNotetakerHost(url: string): boolean {
+  const u = url.toLowerCase();
+  if (u.includes("localhost") || u.includes("127.0.0.1")) return true;
+  if (u.includes("onrender.com") || u.includes("notetaker")) return true;
+  // Alyson HR client hosts must not receive Recall transcript webhooks.
+  if (u.includes("vercel.app") || u.includes("alyson-client")) return false;
+  return true;
+}
+
+/** Public URL Recall uses for transcript.data / transcript.partial_data webhooks. */
+export function resolveRecallTranscriptWebhookUrl(): string {
+  const explicit = process.env.RECALL_TRANSCRIPT_WEBHOOK_URL?.trim();
+  if (explicit) return explicit;
+
+  const publicBase = process.env.PUBLIC_WEBHOOK_BASE_URL?.trim();
+  if (publicBase) return `${publicBase.replace(/\/$/, "")}/webhooks/recall`;
+
+  const notetakerBase = process.env.ALYSON_NOTETAKER_BASE_URL?.trim();
+  if (notetakerBase && looksLikeNotetakerHost(notetakerBase)) {
+    return `${notetakerBase.replace(/\/$/, "")}/webhooks/recall`;
+  }
+
+  return "https://api-uic1.onrender.com/webhooks/recall";
+}
+
 /** Default Recall bot settings (no join_at — forbidden in Calendar V1 dashboard template). */
 export function recallBotRecordingConfig() {
-  const base =
-    process.env.PUBLIC_WEBHOOK_BASE_URL?.trim() ||
-    process.env.ALYSON_NOTETAKER_BASE_URL?.trim() ||
-    "https://api-uic1.onrender.com";
-  const webhookBase = base.replace(/\/$/, "");
-  const transcriptWebhookUrl =
-    process.env.RECALL_TRANSCRIPT_WEBHOOK_URL?.trim() || `${webhookBase}/webhooks/recall`;
+  const transcriptWebhookUrl = resolveRecallTranscriptWebhookUrl();
   const language = process.env.TRANSCRIPT_LANGUAGE?.trim() || "en";
 
   return {
@@ -14,6 +33,7 @@ export function recallBotRecordingConfig() {
       transcript: {
         provider: {
           recallai_streaming: {
+            mode: "prioritize_low_latency",
             language_code: language,
           },
         },

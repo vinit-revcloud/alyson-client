@@ -94,8 +94,11 @@ async function persistScheduledBot(event: RecallCalendarEvent, botId: string, jo
   await writeUnifiedScheduledStateToS3(state);
 }
 
-export async function processRecallCalendarEvent(event: RecallCalendarEvent): Promise<{
-  action: "scheduled" | "skipped" | "deleted";
+export async function processRecallCalendarEvent(
+  event: RecallCalendarEvent,
+  options?: { refreshBotConfig?: boolean },
+): Promise<{
+  action: "scheduled" | "skipped" | "deleted" | "refreshed";
   botId?: string;
   reason?: string;
 }> {
@@ -109,7 +112,8 @@ export async function processRecallCalendarEvent(event: RecallCalendarEvent): Pr
     };
   }
 
-  if (event.bots?.length) {
+  const hadBot = Boolean(event.bots?.length);
+  if (hadBot && !options?.refreshBotConfig) {
     return { action: "skipped", reason: "Bot already scheduled on this event" };
   }
 
@@ -124,7 +128,11 @@ export async function processRecallCalendarEvent(event: RecallCalendarEvent): Pr
   const botId = updated.bots?.[0]?.bot_id || event.bots?.[0]?.bot_id;
   const joinAt = String(botConfig.join_at || event.start_time);
   if (botId) await persistScheduledBot(event, botId, joinAt);
-  return { action: "scheduled", botId: botId || undefined };
+  return {
+    action: hadBot ? "refreshed" : "scheduled",
+    botId: botId || undefined,
+    reason: hadBot ? "Updated bot config (transcript webhooks)" : undefined,
+  };
 }
 
 export type RecallCalendarSyncResult = {
@@ -143,6 +151,8 @@ export async function syncRecallCalendarEvents(args: {
   calendarId: string;
   updatedAtGte?: string;
   ownerEmail?: string;
+  /** Re-apply bot_config (recording + transcript webhooks) on events that already have a bot. */
+  refreshBotConfig?: boolean;
 }): Promise<RecallCalendarSyncResult> {
   const state = await readRecallCalendarState();
   const conn = state.connections.find((c) => c.recallCalendarId === args.calendarId);
@@ -195,10 +205,12 @@ export async function syncRecallCalendarEvents(args: {
         result.skipped += 1;
         continue;
       }
-      const r = await processRecallCalendarEvent(event);
-      if (r.action === "scheduled") {
+      const r = await processRecallCalendarEvent(event, {
+        refreshBotConfig: args.refreshBotConfig,
+      });
+      if (r.action === "scheduled" || r.action === "refreshed") {
         result.scheduled += 1;
-        newBotsScheduled += 1;
+        if (r.action === "scheduled") newBotsScheduled += 1;
       } else if (r.action === "deleted") result.deleted += 1;
       else result.skipped += 1;
     } catch (e) {

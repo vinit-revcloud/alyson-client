@@ -1873,121 +1873,25 @@ export const fetchTimeDoctorMonthlyUnderHoursReport = createServerFn({ method: "
     } satisfies MonthlyUnderHoursReport;
   });
 
-const WeeklyPacingInput = z.object({
-  targetHours: z.number().min(1).max(168).optional(),
-  day: DateSchema.optional(),
-});
-
-/** Current-week pacing: all employees with hours worked, gap/over target, and required daily pace. */
-export async function buildWeeklyPacingReport(args?: { targetHours?: number; day?: string }) {
-  const { buildPacingRow, computeWeekPacingMetrics } = await import("@/lib/weekly-pacing");
-  const targetHours = args?.targetHours ?? 35;
-  const company = await getCompany();
-  const rollupDay = args?.day ?? timeDoctorTodayIso();
-  const warnings: string[] = [];
-
-  let weekStart = weekStartIso(rollupDay);
-  const rangeCache = new Map<string, Map<string, number>>();
-
-  let weekly = new Map<string, number>();
-  try {
-    weekly = await loadEmployeeTableRangeSeconds(company.id, weekStart, rollupDay, rangeCache);
-    const weekEmpty = [...weekly.values()].every((s) => s === 0);
-    if (weekEmpty) {
-      const sundayStart = weekStartSundayIso(rollupDay);
-      if (sundayStart !== weekStart) {
-        const alt = await loadEmployeeTableRangeSeconds(company.id, sundayStart, rollupDay, rangeCache);
-        if ([...alt.values()].some((s) => s > 0)) {
-          weekly = alt;
-          weekStart = sundayStart;
-        }
-      }
-    }
-  } catch (e) {
-    warnings.push(`weekly-worklogs: ${String(e)}`);
-  }
-
-  let users: Awaited<ReturnType<typeof listUsers>> = [];
-  try {
-    users = await listUsers(company.id);
-  } catch (e) {
-    warnings.push(`users: ${String(e)}`);
-  }
-
-  /** Pace always uses Mon–Thu of the ISO week (Monday anchor), even if weekly rollup uses Sunday start. */
-  const pacingWeekStart = weekStartIso(rollupDay);
-  const metrics = computeWeekPacingMetrics({
-    weekStart: pacingWeekStart,
-    today: rollupDay,
-    targetHours,
-  });
-  const sampleDays = metrics.pacingSampleDays;
-
-  await Promise.all(
-    sampleDays.map(async (day) => {
-      try {
-        await loadEmployeeTableRangeSeconds(company.id, day, day, rangeCache);
-      } catch (e) {
-        warnings.push(`daily-worklogs-${day}: ${String(e)}`);
-      }
-    }),
-  );
-
-  const { attachManagerToPacingRow } = await import("@/lib/org-chart-roster");
-  const { getOrgChartRosterLookup } = await import("@/lib/org-chart-roster.server");
-  const { resolveCintaraActiveForPacing } = await import("@/lib/cintara-active-members");
-  const { getCintaraActiveMemberLookup } = await import("@/lib/cintara-active-members.server");
-  const rosterLookup = getOrgChartRosterLookup();
-  const activeLookup = getCintaraActiveMemberLookup();
-
-  const rows = users
-    .map((u) => {
-      const daySeconds = sampleDays.map((day) => {
-        const cacheKey = `${company.id}:${day}:${day}`;
-        const dayMap = rangeCache.get(cacheKey);
-        return dayMap?.get(u.id) ?? 0;
-      });
-      const row = buildPacingRow({
-        id: u.id,
-        email: (u.email || "").trim(),
-        name: (u.name || u.email || "").trim(),
-        title: u.title ?? "",
-        weeklySeconds: weekly.get(u.id) ?? 0,
-        dailyHours: daySeconds.map((s) => s / 3600),
-        metrics,
-        today: rollupDay,
-        weekStart: pacingWeekStart,
-      });
-      if (!row) return null;
-      const withManager = attachManagerToPacingRow(row, rosterLookup);
-      return {
-        ...withManager,
-        active: resolveCintaraActiveForPacing(activeLookup, rosterLookup, {
-          email: withManager.email,
-          name: withManager.name,
-        }),
-      };
-    })
-    .filter((r): r is NonNullable<typeof r> => r != null);
-
-  return {
-    company: { id: company.id, name: company.name },
-    targetHours,
-    timeZone: company.timeZone ?? timeDoctorTimezone(),
-    timeZoneLabel: company.timeZoneLabel ?? getTimeDoctorTimezoneLabel(),
-    today: rollupDay,
-    week: { start: pacingWeekStart, end: metrics.weekEnd },
-    pacingSampleDays: metrics.pacingSampleDays,
-    elapsedWorkDays: metrics.elapsedWorkDays,
-    totalWorkDays: metrics.totalWorkDays,
-    remainingWorkDays: metrics.remainingWorkDays,
-    generatedAt: new Date().toISOString(),
-    rows,
-    warnings: warnings.slice(0, 8),
-  };
+/** @internal Server-only helpers for time-doctor-pacing.server.ts */
+export async function timeDoctorPacingGetCompany() {
+  return getCompany();
 }
 
-export const fetchWeeklyPacingReport = createServerFn({ method: "GET" })
-  .inputValidator((data: unknown) => WeeklyPacingInput.parse(data ?? {}))
-  .handler(async ({ data }) => buildWeeklyPacingReport(data));
+export async function timeDoctorPacingListUsers(companyId: string) {
+  return listUsers(companyId);
+}
+
+export async function timeDoctorPacingLoadRangeSeconds(
+  companyId: string,
+  rangeStart: string,
+  rangeEnd: string,
+  cache: Map<string, Map<string, number>>,
+) {
+  return loadEmployeeTableRangeSeconds(companyId, rangeStart, rangeEnd, cache);
+}
+
+export function timeDoctorPacingWeekStartSunday(day: string) {
+  return weekStartSundayIso(day);
+}
 

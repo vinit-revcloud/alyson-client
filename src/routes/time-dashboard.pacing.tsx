@@ -5,7 +5,8 @@ import { PageHeader, TableScroll } from "@/components/AppShell";
 import { FetchingBar } from "@/components/Skeleton";
 import { TimeDashboardGate } from "@/components/TimeDashboardGate";
 import { WeeklyPacingWeekPicker } from "@/components/WeeklyPacingWeekPicker";
-import { fetchWeeklyPacingReport } from "@/lib/time-doctor-functions";
+import { fetchWeeklyHoursTrend, fetchWeeklyPacingReport } from "@/lib/time-doctor-pacing-functions";
+import { WeeklyPacingTrendPanel } from "@/components/WeeklyPacingTrendPanel";
 import { formatRangeLabel, isIsoDate } from "@/lib/time-dashboard-range";
 import {
   filterPacingRows,
@@ -95,8 +96,28 @@ function WeeklyPacingPage() {
     refetchOnWindowFocus: false,
   });
 
+  const trendQ = useQuery({
+    queryKey: ["weekly-hours-trend", locationFilter, teamFilter, activeFilter],
+    queryFn: () =>
+      fetchWeeklyHoursTrend({
+        data: {
+          weekCount: 8,
+          targetHours: 35,
+          location: locationFilter,
+          team: teamFilter,
+          active: activeFilter,
+        },
+      }),
+    enabled: canAccess,
+    placeholderData: keepPreviousData,
+    staleTime: 120_000,
+    refetchOnWindowFocus: false,
+  });
+
   const draftMatchesApplied = day === appliedDay;
   const isBusy = q.isFetching;
+  const isTrendRefetching = trendQ.isFetching && Boolean(trendQ.isPlaceholderData && trendQ.data);
+  const isTrendLoading = trendQ.isPending && !trendQ.data;
 
   const report = q.data;
   const allRows = report?.rows ?? [];
@@ -246,11 +267,10 @@ function WeeklyPacingPage() {
     toast.success(`CSV downloaded (${rows.length} employee${rows.length === 1 ? "" : "s"})`);
   }
 
-  function clearFilters() {
+  function clearFacetFilters() {
     setLocationFilter("__all__");
     setTeamFilter("__all__");
     setActiveFilter("__all__");
-    setSearchQ("");
   }
 
   if (!canAccess) {
@@ -279,11 +299,20 @@ function WeeklyPacingPage() {
               Time Dashboard
             </Link>
             <button
-              onClick={() => (draftMatchesApplied ? q.refetch() : applyWeek())}
-              disabled={q.isFetching}
+              onClick={() => {
+                if (draftMatchesApplied) {
+                  void q.refetch();
+                  void trendQ.refetch();
+                } else {
+                  applyWeek();
+                }
+              }}
+              disabled={q.isFetching || trendQ.isFetching}
               className="h-8 px-3 rounded-md border border-border text-xs flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${q.isFetching ? "animate-spin" : ""}`} />
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${q.isFetching || trendQ.isFetching ? "animate-spin" : ""}`}
+              />
               Refresh
             </button>
             <button
@@ -338,64 +367,25 @@ function WeeklyPacingPage() {
                   />
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-[12px]">
-                <label className="inline-flex items-center gap-1.5">
-                  <span className="text-muted-foreground font-medium">Location</span>
-                  <select
-                    value={locationFilter}
-                    onChange={(e) => setLocationFilter(e.target.value)}
-                    className="h-8 min-w-[9rem] px-2 rounded-md border border-border bg-background"
-                  >
-                    <option value="__all__">All locations</option>
-                    {locationOptions.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt === "__empty__" ? "No location" : opt}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="inline-flex items-center gap-1.5">
-                  <span className="text-muted-foreground font-medium">Team</span>
-                  <select
-                    value={teamFilter}
-                    onChange={(e) => setTeamFilter(e.target.value)}
-                    className="h-8 min-w-[9rem] px-2 rounded-md border border-border bg-background"
-                  >
-                    <option value="__all__">All teams</option>
-                    {teamOptions.map((opt) => (
-                      <option key={opt} value={opt}>
-                        {opt === "__empty__" ? "No team" : opt}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="inline-flex items-center gap-1.5">
-                  <span className="text-muted-foreground font-medium">Active</span>
-                  <select
-                    value={activeFilter}
-                    onChange={(e) => setActiveFilter(e.target.value)}
-                    className="h-8 min-w-[8rem] px-2 rounded-md border border-border bg-background"
-                  >
-                    <option value="__all__">All</option>
-                    <option value="yes">Active only</option>
-                    <option value="no">Inactive only</option>
-                  </select>
-                </label>
-                {hasAnyFilters ? (
-                  <button
-                    type="button"
-                    onClick={clearFilters}
-                    className="h-8 px-3 rounded-md border border-border text-[11.5px] text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  >
-                    Clear filters
-                  </button>
-                ) : null}
-                <span className="text-muted-foreground tabular-nums sm:ml-auto">
-                  Showing {filteredRows.length}
-                  {hasAnyFilters ? ` of ${allRows.length}` : ""} employees
-                </span>
-              </div>
             </div>
+
+            <WeeklyPacingTrendPanel
+              trend={trendQ.data}
+              trendError={trendQ.isError ? (trendQ.error as Error) : null}
+              isTrendLoading={isTrendLoading}
+              isTrendRefetching={isTrendRefetching}
+              locationFilter={locationFilter}
+              teamFilter={teamFilter}
+              activeFilter={activeFilter}
+              onLocationFilter={setLocationFilter}
+              onTeamFilter={setTeamFilter}
+              onActiveFilter={setActiveFilter}
+              onClearFilters={clearFacetFilters}
+              locationOptions={locationOptions}
+              teamOptions={teamOptions}
+              filteredEmployeeCount={filteredRows.length}
+              totalEmployeeCount={allRows.length}
+            />
 
             {isHistoricalWeek ? (
               <p className="text-[12px] text-muted-foreground">

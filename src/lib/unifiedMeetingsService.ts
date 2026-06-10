@@ -2,6 +2,7 @@ import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { recallBotRecordingConfig } from "@/lib/recall/recall-bot-config.server";
 import { registerScheduledBotInSessionsCatalog } from "@/lib/notetaker-scheduled-catalog.server";
 import {
   readUnifiedScheduledStateFromS3,
@@ -410,6 +411,7 @@ async function createRecallBot(args: {
       meeting_url: args.meetingUrl,
       bot_name: botName,
       join_at: args.botJoinAt,
+      ...recallBotRecordingConfig(),
       metadata: {
         source: "unified_meetings",
         google_event_id: args.meeting.googleEventId,

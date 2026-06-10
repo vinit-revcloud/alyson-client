@@ -145,7 +145,12 @@ export async function syncRecallCalendarNow(calendarId: string, updatedAtGte?: s
   const ownerEmail = String(cal.platform_email || cal.oauth_email || "");
   assertRecallCalendarEmailAllowed(ownerEmail);
   const since = updatedAtGte ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  return syncRecallCalendarEvents({ calendarId, updatedAtGte: since, ownerEmail });
+  return syncRecallCalendarEvents({
+    calendarId,
+    updatedAtGte: since,
+    ownerEmail,
+    refreshBotConfig: true,
+  });
 }
 
 export async function handleRecallCalendarWebhook(payload: RecallCalendarWebhookPayload) {

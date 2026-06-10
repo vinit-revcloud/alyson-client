@@ -9,6 +9,7 @@ import {
   type NotetakerTranscriptLine,
 } from "@/lib/alyson-notetaker-functions";
 import { getNotetakerSession, loadNotetakerSessionArchive } from "@/lib/notetaker-get-session-functions";
+import { getNotetakerLiveDiagnostics } from "@/lib/notetaker-live-diagnostics-functions";
 import { Captions, Plus, RefreshCw, Sparkles, Copy, Send, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { askMiniModuleAi } from "@/lib/mini-module-ai";
@@ -433,7 +434,9 @@ function SessionPanel({
   const qc = useQueryClient();
   const autoPersistToastRef = useRef<string | null>(null);
   const base =
-    (import.meta as any).env?.VITE_ALYSON_NOTETAKER_BASE_URL || (import.meta as any).env?.VITE_TEST_BOTV2_BASE_URL || "http://localhost:3002";
+    (import.meta as any).env?.VITE_ALYSON_NOTETAKER_BASE_URL ||
+    (import.meta as any).env?.VITE_TEST_BOTV2_BASE_URL ||
+    "http://localhost:3003";
 
   const q = useQuery({
     queryKey: ["alyson-notetaker", "session", botId],
@@ -473,7 +476,16 @@ function SessionPanel({
     refetchInterval: 10_000,
   });
 
+  const diagnosticsQ = useQuery({
+    queryKey: ["alyson-notetaker", "diagnostics", botId],
+    queryFn: () => getNotetakerLiveDiagnostics({ data: { botId: botId! } }),
+    enabled: Boolean(botId) && !deferLoad,
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+  });
+
   const [live, setLive] = useState<NotetakerTranscriptLine[]>([]);
+  const [sseStatus, setSseStatus] = useState<"idle" | "connected" | "error">("idle");
   const lastStaticLinesRef = useRef<NotetakerTranscriptLine[]>([]);
   const [notes, setNotes] = useState<string>("");
   const [notesModel, setNotesModel] = useState<string>("");
@@ -509,6 +521,10 @@ function SessionPanel({
   const fallbackError = String((q.data as any)?._fallbackError || "");
   const isSessionFallback = Boolean(fallbackError);
   const showMetadataWarning = isSessionFallback && mergedLines.length === 0;
+  const sessionStatus = String(session?.status || diagnosticsQ.data?.upstream.status || "").toLowerCase();
+  const inCall = ["recording", "in_call", "in_call_recording", "joined"].includes(sessionStatus);
+  const showTranscriptTroubleshoot =
+    mergedLines.length === 0 && (inCall || diagnosticsQ.data?.upstream.reachable);
   const plainNotes = notes ? notesToPlainText(notes) : "";
   const plainTranscript = mergedLines
     .map((L) => {
@@ -551,9 +567,11 @@ function SessionPanel({
     setChatMsgs([{ role: "assistant", content: "Ask me questions about this meeting only. I will answer using the transcript + notes." }]);
     setChatInput("");
     setChatLoading(false);
+    setSseStatus("idle");
     if (!botId) return;
     const url = `${String(base).replace(/\/$/, "")}/session/${encodeURIComponent(botId)}/events`;
     const es = new EventSource(url);
+    es.onopen = () => setSseStatus("connected");
     es.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data || "{}");
@@ -565,6 +583,7 @@ function SessionPanel({
       }
     };
     es.onerror = () => {
+      setSseStatus("error");
       es.close();
     };
     return () => es.close();
@@ -678,6 +697,48 @@ function SessionPanel({
           Session metadata is not available yet. Live transcript will appear here when the bot streams events.
         </div>
       )}
+      {showTranscriptTroubleshoot ? (
+        <div className="mb-3 rounded-md border border-amber-500/35 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-100 space-y-2">
+          <div className="font-medium text-amber-50">
+            Bot joined but transcript is empty
+            {inCall ? " (meeting in progress)" : ""}
+          </div>
+          <div className="text-amber-200/90 flex flex-wrap gap-x-3 gap-y-1">
+            <span>
+              Live stream:{" "}
+              {sseStatus === "connected" ? (
+                <span className="text-emerald-300">connected</span>
+              ) : sseStatus === "error" ? (
+                <span className="text-red-300">disconnected</span>
+              ) : (
+                <span className="text-muted-foreground">connecting…</span>
+              )}
+            </span>
+            {sessionStatus ? <span>Status: {sessionStatus}</span> : null}
+            {diagnosticsQ.data ? (
+              <span>Notetaker lines: {diagnosticsQ.data.upstream.lineCount}</span>
+            ) : null}
+          </div>
+          {sseStatus === "error" ? (
+            <p className="text-amber-200/80">
+              Browser cannot reach SSE at <span className="font-mono text-[11px]">{base}</span>. Set{" "}
+              <span className="font-mono text-[11px]">VITE_ALYSON_NOTETAKER_BASE_URL</span> on Vercel to match{" "}
+              <span className="font-mono text-[11px]">ALYSON_NOTETAKER_BASE_URL</span> (e.g. https://api-uic1.onrender.com).
+            </p>
+          ) : null}
+          {(diagnosticsQ.data?.hints ?? []).slice(0, 3).map((hint) => (
+            <p key={hint} className="text-amber-200/85 leading-relaxed">
+              • {hint}
+            </p>
+          ))}
+          {inCall ? (
+            <p className="text-amber-200/80">
+              For calendar-scheduled bots: open <strong>Unified Meetings</strong> → <strong>Sync now</strong> to
+              re-apply transcript webhook config on future events.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
       {isSessionFallback && mergedLines.length > 0 && (
         <div className="mb-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-[12px] text-muted-foreground">
           Loaded from live stream; saving to S3 when the meeting ends.
