@@ -45,6 +45,7 @@ async function createViaNotetaker(args: {
       title: args.title,
       join_at: args.botJoinAt,
       metadata: args.metadata,
+      ...recallBotRecordingConfig(),
     }),
     signal: controller.signal,
   }).finally(() => clearTimeout(timeout));
@@ -133,7 +134,7 @@ export async function dispatchBotWithLiveTranscripts(args: {
   title: string;
   metadata: Record<string, unknown>;
   joinOffsetMinutes?: number;
-  /** Calendar smart schedule: use Recall scheduled join_at (not immediate waiting-room dispatch). */
+  /** @deprecated Notetaker is always preferred — kept for call-site compatibility. */
   preferScheduledJoin?: boolean;
 }): Promise<{ botId: string; creationSource: BotDispatchSource }> {
   const botName = process.env.BOT_NAME?.trim() || "Alyson Notetaker";
@@ -142,10 +143,6 @@ export async function dispatchBotWithLiveTranscripts(args: {
     bot_join_offset_minutes: args.joinOffsetMinutes ?? 2,
     scheduled_join_at: args.botJoinAt,
   };
-
-  const joinMs = new Date(args.botJoinAt).getTime();
-  const isFutureScheduledJoin = Number.isFinite(joinMs) && joinMs > Date.now() + 60_000;
-  const recallFirst = Boolean(args.preferScheduledJoin || isFutureScheduledJoin);
 
   const recallDispatch = async () => {
     const { botId } = await createViaRecallDirect({
@@ -168,20 +165,8 @@ export async function dispatchBotWithLiveTranscripts(args: {
     return { botId, creationSource: "notetaker_managed" as const };
   };
 
-  if (recallFirst) {
-    try {
-      return await recallDispatch();
-    } catch (recallErr) {
-      try {
-        return await notetakerDispatch();
-      } catch (notetakerErr) {
-        const rc = recallErr instanceof Error ? recallErr.message : String(recallErr);
-        const nt = notetakerErr instanceof Error ? notetakerErr.message : String(notetakerErr);
-        throw new Error(`Recall scheduled join: ${rc}; Notetaker fallback: ${nt}`);
-      }
-    }
-  }
-
+  // Notetaker /api/create-bot registers the live transcript session (SSE). Recall-direct
+  // bypasses that and joins fine but real-time transcripts often never appear in the UI.
   try {
     return await notetakerDispatch();
   } catch (notetakerErr) {
