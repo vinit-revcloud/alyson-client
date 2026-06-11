@@ -42,6 +42,9 @@ type RecallCalendarPendingEvent = {
   endTime: string;
   meetingUrl: string;
   hasBot: boolean;
+  scheduledInApp?: boolean;
+  botJoinAt?: string;
+  scheduledAt?: string;
   botId?: string;
 };
 
@@ -457,13 +460,16 @@ function RecallCalendarConnectionRow({
   const pending = c.pending;
   const allMeetings = pending?.events ?? [];
   const bulkScheduledSet = useMemo(() => new Set(bulkScheduledIds), [bulkScheduledIds]);
-  const isScheduledInUi = (eventId: string) => {
+  const meetingRow = (eventId: string) => allMeetings.find((m) => m.eventId === eventId);
+
+  /** Persisted in S3 (recall calendar event id) or just scheduled this session. */
+  const isScheduled = (eventId: string) => {
     if (userScheduledIds.has(eventId) || bulkScheduledSet.has(eventId)) return true;
-    return allMeetings.find((m) => m.eventId === eventId)?.hasBot ?? false;
+    return Boolean(meetingRow(eventId)?.scheduledInApp);
   };
 
   const pendingCount = allMeetings.filter(
-    (e) => !isScheduledInUi(e.eventId) && !isMeetingOver(e.startTime, e.endTime),
+    (e) => !isScheduled(e.eventId) && !isMeetingOver(e.startTime, e.endTime),
   ).length;
 
   const closeMenu = () => {
@@ -472,8 +478,8 @@ function RecallCalendarConnectionRow({
   };
 
   const toggleSelect = (eventId: string) => {
-    const row = allMeetings.find((m) => m.eventId === eventId);
-    if (isScheduledInUi(eventId)) return;
+    const row = meetingRow(eventId);
+    if (isScheduled(eventId)) return;
     if (row && isMeetingOver(row.startTime, row.endTime)) return;
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -554,8 +560,8 @@ function RecallCalendarConnectionRow({
                   <div className="px-3 py-2 border-b border-border shrink-0">
                     <div className="font-medium text-[12px]">Smart schedule</div>
                     <p className="text-muted-foreground leading-relaxed mt-1">
-                      All meetings start as <span className="text-foreground">Pending</span>. Check one or more, then
-                      click Schedule selected — only those rows become Scheduled.
+                      Check pending meetings, then Schedule selected. Scheduled status is saved in S3 with join time
+                      (~2 min before start).
                     </p>
                   </div>
 
@@ -566,14 +572,14 @@ function RecallCalendarConnectionRow({
                       </div>
                     ) : (
                       allMeetings.map((e) => {
-                        const isUserScheduled = isScheduledInUi(e.eventId);
+                        const scheduled = isScheduled(e.eventId);
                         const isSelected = selectedIds.has(e.eventId);
                         const meetingOver = isMeetingOver(e.startTime, e.endTime);
-                        const rowDisabled = isUserScheduled || meetingOver || busy || scheduling;
+                        const rowDisabled = scheduled || meetingOver || busy || scheduling;
                         return (
                           <label
                             key={e.eventId}
-                            className={`flex items-start gap-2 px-3 py-2 hover:bg-muted/40 ${rowDisabled && !isSelected ? "opacity-70" : "cursor-pointer"}`}
+                            className={`flex items-start gap-2 px-3 py-2 hover:bg-muted/40 ${rowDisabled && !isSelected ? "opacity-60" : "cursor-pointer"}`}
                           >
                             <input
                               type="checkbox"
@@ -585,7 +591,7 @@ function RecallCalendarConnectionRow({
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <span className="font-medium truncate">{e.title}</span>
-                                {isUserScheduled ? (
+                                {scheduled ? (
                                   <span className="shrink-0 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px]">
                                     Scheduled
                                   </span>
@@ -599,8 +605,13 @@ function RecallCalendarConnectionRow({
                                   </span>
                                 )}
                               </div>
-                              <div className="text-muted-foreground mt-0.5">{fmt(e.startTime)}</div>
-                              {meetingOver && !isUserScheduled ? (
+                              <div className="text-muted-foreground mt-0.5">Starts {fmt(e.startTime)}</div>
+                              {scheduled && e.botJoinAt ? (
+                                <div className="text-[10px] text-emerald-700/80 dark:text-emerald-300/80 mt-0.5">
+                                  Bot joins {fmt(e.botJoinAt)}
+                                </div>
+                              ) : null}
+                              {meetingOver && !scheduled ? (
                                 <div className="text-[10px] text-red-600/80 dark:text-red-400/80 mt-0.5">
                                   Past meeting time — cannot schedule
                                 </div>

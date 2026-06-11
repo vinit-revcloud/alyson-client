@@ -36,6 +36,16 @@ export function recallCalendarDedupeKey(event: RecallCalendarEvent): string {
   return `${start}-${url}`;
 }
 
+function normalizeIsoForDedupe(iso: string): string {
+  const ms = new Date(iso).getTime();
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : String(iso).trim();
+}
+
+/** Same key format as unifiedMeetingsService (url|start). */
+function unifiedScheduleDedupeKey(meetingUrl: string, startTime: string): string {
+  return `${String(meetingUrl).trim()}|${normalizeIsoForDedupe(startTime)}`;
+}
+
 export function shouldAutoScheduleRecallEvent(event: RecallCalendarEvent): boolean {
   if (event.is_deleted) return false;
   if (!String(event.meeting_url || "").trim()) return false;
@@ -59,7 +69,7 @@ async function persistScheduledBot(
   });
 
   if (!unifiedScheduledStateUsesS3()) return;
-  const key = recallCalendarDedupeKey(event);
+  const key = unifiedScheduleDedupeKey(String(event.meeting_url), event.start_time);
   const state = await readUnifiedScheduledStateFromS3();
   const entry: UnifiedScheduledStateEntry = {
     dedupeKey: key,
@@ -72,6 +82,7 @@ async function persistScheduledBot(
     endTime: event.end_time,
     botJoinAt: joinAt,
     recallBotId: botId,
+    recallCalendarEventId: event.id,
     creationSource,
     scheduledAt: new Date().toISOString(),
     status: "scheduled",
@@ -110,13 +121,14 @@ export async function processRecallCalendarEvent(
 
   let existingBotId: string | undefined;
   if (unifiedScheduledStateUsesS3()) {
-    const key = recallCalendarDedupeKey(event);
     const state = await readUnifiedScheduledStateFromS3();
-    existingBotId = state.scheduled.find((s) => s.dedupeKey === key && s.status === "scheduled")?.recallBotId;
+    existingBotId = state.scheduled.find(
+      (row) =>
+        row.recallCalendarEventId === event.id && row.status === "scheduled" && Boolean(row.recallBotId),
+    )?.recallBotId;
   }
 
-  const hadBot = hadRecallCalendarBot || Boolean(existingBotId);
-  if (hadBot && !shouldRefreshConfig) {
+  if (existingBotId && !shouldRefreshConfig) {
     return { action: "skipped", reason: "Bot already scheduled for this event" };
   }
 
@@ -157,10 +169,11 @@ export async function processRecallCalendarEvent(
   });
 
   await persistScheduledBot(event, botId, joinAt, creationSource);
+  const replacedPriorBot = Boolean(existingBotId || hadRecallCalendarBot);
   return {
-    action: hadBot ? "refreshed" : "scheduled",
+    action: replacedPriorBot ? "refreshed" : "scheduled",
     botId,
-    reason: hadBot
+    reason: replacedPriorBot
       ? `Re-scheduled via ${creationSource} — joins at ${joinAt}`
       : `Reserved via ${creationSource} — joins at ${joinAt}`,
   };
@@ -186,7 +199,12 @@ export type RecallCalendarPendingEvent = {
   startTime: string;
   endTime: string;
   meetingUrl: string;
+  /** Legacy Recall Calendar bot and/or app-managed bot. */
   hasBot: boolean;
+  /** Reserved via Smart schedule / Sync now (persisted in S3 — drives UI badge). */
+  scheduledInApp: boolean;
+  botJoinAt?: string;
+  scheduledAt?: string;
   botId?: string;
 };
 
@@ -205,13 +223,11 @@ export async function previewRecallCalendarPending(calendarId: string): Promise<
   const relevant = events.filter((event) => !event.is_deleted && isUpcomingRecallEvent(event));
   const pending: RecallCalendarPendingEvent[] = [];
 
-  const stateByKey = new Map<string, UnifiedScheduledStateEntry>();
+  let scheduledRows: UnifiedScheduledStateEntry[] = [];
   if (unifiedScheduledStateUsesS3()) {
     try {
       const state = await readUnifiedScheduledStateFromS3();
-      for (const row of state.scheduled) {
-        if (row.status === "scheduled" && row.recallBotId) stateByKey.set(row.dedupeKey, row);
-      }
+      scheduledRows = state.scheduled;
     } catch {
       // preview still works from Recall calendar event bots
     }
@@ -219,9 +235,12 @@ export async function previewRecallCalendarPending(calendarId: string): Promise<
 
   for (const event of relevant) {
     if (!shouldAutoScheduleRecallEvent(event)) continue;
-    const key = recallCalendarDedupeKey(event);
-    const stateRow = stateByKey.get(key);
-    const hasBot = Boolean(event.bots?.length) || Boolean(stateRow?.recallBotId);
+    const stateRow = scheduledRows.find(
+      (row) =>
+        row.recallCalendarEventId === event.id && row.status === "scheduled" && Boolean(row.recallBotId),
+    );
+    const scheduledInApp = Boolean(stateRow);
+    const hasBot = Boolean(event.bots?.length) || scheduledInApp;
     pending.push({
       eventId: event.id,
       title: eventTitleFromRaw(event),
@@ -229,7 +248,10 @@ export async function previewRecallCalendarPending(calendarId: string): Promise<
       endTime: event.end_time,
       meetingUrl: String(event.meeting_url || ""),
       hasBot,
-      botId: event.bots?.[0]?.bot_id || stateRow?.recallBotId,
+      scheduledInApp,
+      botJoinAt: stateRow?.botJoinAt,
+      scheduledAt: stateRow?.scheduledAt,
+      botId: stateRow?.recallBotId || event.bots?.[0]?.bot_id,
     });
   }
 
@@ -237,21 +259,21 @@ export async function previewRecallCalendarPending(calendarId: string): Promise<
 
   return {
     calendarId,
-    pendingCount: pending.filter((e) => !e.hasBot).length,
-    needsConfigRefreshCount: pending.filter((e) => e.hasBot).length,
+    pendingCount: pending.filter((e) => !e.scheduledInApp).length,
+    needsConfigRefreshCount: pending.filter((e) => e.hasBot && !e.scheduledInApp).length,
     upcomingWithLink: pending.length,
     events: pending,
     transcriptWebhookUrl: resolveRecallTranscriptWebhookUrl(),
   };
 }
 
-function recallEventAlreadyHasBot(
+function recallEventScheduledInApp(
   event: RecallCalendarEvent,
-  stateByKey: Map<string, UnifiedScheduledStateEntry>,
+  scheduledRows: UnifiedScheduledStateEntry[],
 ): boolean {
-  if (event.bots?.length) return true;
-  const key = recallCalendarDedupeKey(event);
-  return Boolean(stateByKey.get(key)?.recallBotId);
+  return scheduledRows.some(
+    (row) => row.recallCalendarEventId === event.id && row.status === "scheduled" && Boolean(row.recallBotId),
+  );
 }
 
 export async function syncRecallCalendarEvents(args: {
@@ -296,13 +318,11 @@ export async function syncRecallCalendarEvents(args: {
   const eventIdFilter =
     args.eventIds?.length ? new Set(args.eventIds.map((id) => String(id).trim()).filter(Boolean)) : null;
 
-  const stateByKey = new Map<string, UnifiedScheduledStateEntry>();
+  let scheduledRows: UnifiedScheduledStateEntry[] = [];
   if (unifiedScheduledStateUsesS3()) {
     try {
       const state = await readUnifiedScheduledStateFromS3();
-      for (const row of state.scheduled) {
-        if (row.status === "scheduled" && row.recallBotId) stateByKey.set(row.dedupeKey, row);
-      }
+      scheduledRows = state.scheduled;
     } catch {
       // continue without S3 dedupe hints
     }
@@ -321,7 +341,7 @@ export async function syncRecallCalendarEvents(args: {
   const scheduleBots = Boolean(args.eventIds?.length) || Boolean(args.scheduleAll);
 
   if (args.scheduleAll) {
-    relevantEvents = relevantEvents.filter((event) => !recallEventAlreadyHasBot(event, stateByKey));
+    relevantEvents = relevantEvents.filter((event) => !recallEventScheduledInApp(event, scheduledRows));
   }
 
   const maxNewBots =
