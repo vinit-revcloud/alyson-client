@@ -25,6 +25,31 @@ function requireRecallApiKey(): string {
   return key;
 }
 
+/** Future scheduled joins must use Recall direct — Notetaker create-bot often joins immediately. */
+const FUTURE_SCHEDULE_THRESHOLD_MS = 90 * 1000;
+
+function isFutureScheduledJoin(botJoinAt: string): boolean {
+  const joinMs = new Date(botJoinAt).getTime();
+  return Number.isFinite(joinMs) && joinMs > Date.now() + FUTURE_SCHEDULE_THRESHOLD_MS;
+}
+
+/** Pre-create Notetaker in-memory session so webhooks/SSE work after Recall-direct dispatch. */
+async function warmNotetakerSession(botId: string): Promise<void> {
+  const id = String(botId || "").trim();
+  if (!id) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    await fetch(`${notetakerBaseUrl()}/api/session/${encodeURIComponent(id)}`, {
+      signal: controller.signal,
+    });
+  } catch {
+    // Non-fatal — session is created on first UI poll if this fails.
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /** Preferred path: Notetaker service (live transcripts + session catalog). */
 async function createViaNotetaker(args: {
   meetingUrl: string;
@@ -151,6 +176,7 @@ export async function dispatchBotWithLiveTranscripts(args: {
       botName,
       metadata,
     });
+    await warmNotetakerSession(botId);
     return { botId, creationSource: "direct_recall_fallback" as const };
   };
 
@@ -165,8 +191,23 @@ export async function dispatchBotWithLiveTranscripts(args: {
     return { botId, creationSource: "notetaker_managed" as const };
   };
 
-  // Notetaker /api/create-bot registers the live transcript session (SSE). Recall-direct
-  // bypasses that and joins fine but real-time transcripts often never appear in the UI.
+  const recallFirst = Boolean(args.preferScheduledJoin || isFutureScheduledJoin(args.botJoinAt));
+
+  if (recallFirst) {
+    try {
+      return await recallDispatch();
+    } catch (recallErr) {
+      try {
+        return await notetakerDispatch();
+      } catch (notetakerErr) {
+        const rc = recallErr instanceof Error ? recallErr.message : String(recallErr);
+        const nt = notetakerErr instanceof Error ? notetakerErr.message : String(notetakerErr);
+        throw new Error(`Recall scheduled join: ${rc}; Notetaker fallback: ${nt}`);
+      }
+    }
+  }
+
+  // Immediate join: Notetaker first (registers live transcript session), Recall fallback.
   try {
     return await notetakerDispatch();
   } catch (notetakerErr) {

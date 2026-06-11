@@ -469,7 +469,7 @@ function normalizeMeetingEvent(
       : [],
     shouldBotJoin,
     botScheduled: Boolean(stateEntry),
-    botJoinAt: shouldBotJoin ? resolveBotJoinAt(startTime, endTime, joinOffsetMs) : null,
+    botJoinAt: shouldBotJoin ? resolvePlannedCalendarJoinAt(startTime, endTime, joinOffsetMs) : null,
     recallBotId: stateEntry?.recallBotId ? String(stateEntry.recallBotId) : null,
     botStatus,
     skipReason: reason,
@@ -583,6 +583,7 @@ async function dispatchBotForMeeting(
     botJoinAt: joinAt,
     title: meeting.title,
     joinOffsetMinutes,
+    preferScheduledJoin: true,
     metadata: {
       source: "unified_meetings",
       google_event_id: meeting.googleEventId,
@@ -602,7 +603,7 @@ async function scheduleMeetingInternal(
   if (!meeting.meetingUrl) return { scheduled: false, error: "No meeting URL" };
   const joinOffsetMs = options?.joinOffsetMs ?? BOT_JOIN_OFFSET_MS;
   const joinOffsetMinutes = Math.round(joinOffsetMs / 60_000);
-  const joinAt = resolveBotJoinAt(meeting.startTime, meeting.endTime, joinOffsetMs);
+  const joinAt = resolvePlannedCalendarJoinAt(meeting.startTime, meeting.endTime, joinOffsetMs);
   if (!joinAt) {
     return {
       scheduled: false,
@@ -617,9 +618,8 @@ async function scheduleMeetingInternal(
     (s) => s.dedupeKey === key || s.dedupeKey === legacyKey,
   );
 
-  const joinAtMs = new Date(joinAt).getTime();
   const priorJoinPassed = existingIdx >= 0 && new Date(state.scheduled[existingIdx]!.botJoinAt).getTime() < Date.now() - 60_000;
-  const inWindow = resolveBotJoinAt(meeting.startTime, meeting.endTime, joinOffsetMs) != null;
+  const inWindow = resolvePlannedCalendarJoinAt(meeting.startTime, meeting.endTime, joinOffsetMs) != null;
   const shouldRedispatch =
     Boolean(options?.forceRedispatch) || (existingIdx >= 0 && inWindow && priorJoinPassed);
 
