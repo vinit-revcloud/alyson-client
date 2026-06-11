@@ -309,6 +309,10 @@ export function attachManagerToPacingRow<T extends { email: string; name?: strin
       mgr = resolveManagersFromLabel(rosterEntry.managerLabel, lookup);
     }
   }
+  const empCanon = normEmail(canonicalOfficialEmail(row.email));
+  if (mgr.managerEmail && normEmail(mgr.managerEmail) === empCanon) {
+    mgr = resolveManagersFromLabel("Bill", lookup);
+  }
   return {
     ...row,
     ...mgr,
