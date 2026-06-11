@@ -150,6 +150,14 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
       const st = String(session.status || "").toLowerCase();
       const ended = ENDED_SESSION_STATUSES.has(st);
 
+      const { touchUnifiedScheduledFromSession } = await import("@/lib/unified-scheduled-lifecycle.server");
+      await touchUnifiedScheduledFromSession({
+        botId,
+        upstreamStatus: session.status,
+        lineCount: payload.lines.length,
+        ended,
+      });
+
       if (ended) {
         let result = await autoPersistEndedMeetingToS3({
           session,

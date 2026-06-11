@@ -17,6 +17,7 @@ import type { RecallCalendarEvent } from "@/lib/recall/recall-calendar-types";
 import { updateRecallCalendarSyncMeta, readRecallCalendarState } from "@/lib/recall/recall-calendar-state-s3.server";
 import { isRecallCalendarEmailAllowed } from "@/lib/recall/recall-calendar-allowlist.server";
 import { recallBotRecordingConfig, resolveRecallTranscriptWebhookUrl } from "@/lib/recall/recall-bot-config.server";
+import { isActiveUnifiedScheduledStatus } from "@/lib/unified-scheduled-lifecycle.server";
 
 const BOT_JOIN_OFFSET_MS = 2 * 60 * 1000;
 const SYNC_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -85,6 +86,8 @@ async function persistScheduledBot(
     recallCalendarEventId: event.id,
     creationSource,
     scheduledAt: new Date().toISOString(),
+    lastStatusAt: new Date().toISOString(),
+    transcriptWebhookUrl: resolveRecallTranscriptWebhookUrl(),
     status: "scheduled",
   };
   const idx = state.scheduled.findIndex((s) => s.dedupeKey === key);
@@ -124,7 +127,9 @@ export async function processRecallCalendarEvent(
     const state = await readUnifiedScheduledStateFromS3();
     existingBotId = state.scheduled.find(
       (row) =>
-        row.recallCalendarEventId === event.id && row.status === "scheduled" && Boolean(row.recallBotId),
+        row.recallCalendarEventId === event.id &&
+        isActiveUnifiedScheduledStatus(row.status) &&
+        Boolean(row.recallBotId),
     )?.recallBotId;
   }
 
@@ -205,6 +210,9 @@ export type RecallCalendarPendingEvent = {
   scheduledInApp: boolean;
   botJoinAt?: string;
   scheduledAt?: string;
+  lifecycleStatus?: string;
+  upstreamStatus?: string;
+  transcriptLineCount?: number;
   botId?: string;
 };
 
@@ -237,7 +245,9 @@ export async function previewRecallCalendarPending(calendarId: string): Promise<
     if (!shouldAutoScheduleRecallEvent(event)) continue;
     const stateRow = scheduledRows.find(
       (row) =>
-        row.recallCalendarEventId === event.id && row.status === "scheduled" && Boolean(row.recallBotId),
+        row.recallCalendarEventId === event.id &&
+        isActiveUnifiedScheduledStatus(row.status) &&
+        Boolean(row.recallBotId),
     );
     const scheduledInApp = Boolean(stateRow);
     const hasBot = Boolean(event.bots?.length) || scheduledInApp;
@@ -251,6 +261,9 @@ export async function previewRecallCalendarPending(calendarId: string): Promise<
       scheduledInApp,
       botJoinAt: stateRow?.botJoinAt,
       scheduledAt: stateRow?.scheduledAt,
+      lifecycleStatus: stateRow?.status,
+      upstreamStatus: stateRow?.upstreamStatus,
+      transcriptLineCount: stateRow?.transcriptLineCount,
       botId: stateRow?.recallBotId || event.bots?.[0]?.bot_id,
     });
   }
@@ -272,7 +285,10 @@ function recallEventScheduledInApp(
   scheduledRows: UnifiedScheduledStateEntry[],
 ): boolean {
   return scheduledRows.some(
-    (row) => row.recallCalendarEventId === event.id && row.status === "scheduled" && Boolean(row.recallBotId),
+    (row) =>
+      row.recallCalendarEventId === event.id &&
+      isActiveUnifiedScheduledStatus(row.status) &&
+      Boolean(row.recallBotId),
   );
 }
 

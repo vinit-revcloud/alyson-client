@@ -22,7 +22,22 @@ export type UnifiedScheduledStateEntry = {
   recallCalendarEventId?: string;
   creationSource?: "notetaker_managed" | "direct_recall_fallback" | "recall_calendar_v2";
   scheduledAt: string;
-  status: "scheduled" | "dispatched" | "failed";
+  status:
+    | "scheduled"
+    | "dispatched"
+    | "joining"
+    | "in_call"
+    | "done"
+    | "failed"
+    | "no_transcript";
+  /** Last known Notetaker / Recall upstream status string. */
+  upstreamStatus?: string;
+  lastStatusAt?: string;
+  transcriptLineCount?: number;
+  lastTranscriptAt?: string;
+  transcriptWebhookUrl?: string;
+  joinedAt?: string;
+  endedAt?: string;
   lastError?: string;
 };
 

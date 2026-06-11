@@ -3,7 +3,9 @@ import { JWT } from "google-auth-library";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { dispatchBotWithLiveTranscripts } from "@/lib/notetaker-bot-dispatch.server";
+import { resolveRecallTranscriptWebhookUrl } from "@/lib/recall/recall-bot-config.server";
 import { registerScheduledBotInSessionsCatalog } from "@/lib/notetaker-scheduled-catalog.server";
+import { unifiedScheduledStatusForUi } from "@/lib/unified-scheduled-lifecycle.server";
 import {
   readUnifiedScheduledStateFromS3,
   unifiedScheduledStateUsesS3,
@@ -404,7 +406,7 @@ export async function listAllUnifiedScheduledBotSessions(): Promise<UnifiedSched
       title: String(row.title || "Unified meeting"),
       meetingUrl: row.meetingUrl ? String(row.meetingUrl) : undefined,
       createdAt: String(row.scheduledAt || row.startTime || new Date().toISOString()),
-      status: "scheduled",
+      status: unifiedScheduledStatusForUi(row),
       creationSource: row.creationSource,
     });
   }
@@ -640,6 +642,8 @@ async function scheduleMeetingInternal(
       recallBotId: botId,
       creationSource,
       scheduledAt: nowIso(),
+      lastStatusAt: nowIso(),
+      transcriptWebhookUrl: resolveRecallTranscriptWebhookUrl(),
       status: "scheduled",
     };
 

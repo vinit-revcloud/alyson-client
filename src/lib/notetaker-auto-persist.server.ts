@@ -249,6 +249,14 @@ export async function maybeCheckpointTranscriptToS3(
     // best-effort catalog touch
   }
 
+  const { touchUnifiedScheduledFromSession } = await import("@/lib/unified-scheduled-lifecycle.server");
+  await touchUnifiedScheduledFromSession({
+    botId,
+    upstreamStatus: resolved.status,
+    lineCount: lines.length,
+    ended: endedStatus(resolved.status),
+  });
+
   checkpointThrottle.set(botId, { at: Date.now(), hash });
 
   if (endedStatus(resolved.status)) {
@@ -350,6 +358,14 @@ export async function autoPersistEndedMeetingToS3(args: {
   } catch {
     // transcript/notes saved; index update is best-effort
   }
+
+  const { touchUnifiedScheduledFromSession } = await import("@/lib/unified-scheduled-lifecycle.server");
+  await touchUnifiedScheduledFromSession({
+    botId,
+    upstreamStatus: session.status || "persisted",
+    lineCount: args.lines.length,
+    ended: true,
+  });
 
   if (!result.skippedDuplicate && (result.wroteTranscript || result.wroteNotes)) {
     invalidateNotetakerCalendarS3Cache();
