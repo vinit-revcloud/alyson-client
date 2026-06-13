@@ -21,6 +21,8 @@ export type NotetakerBotIndexDoc = {
   cronStablePasses?: number;
   cronFinalized?: boolean;
   cronFinalizedAt?: string;
+  /** Recall delete_media succeeded — safe to stop polling Recall storage for this bot. */
+  recallMediaDeletedAt?: string;
 };
 
 /** Two consecutive 5-min cron runs with identical transcript hash (~10 min stable). */
@@ -352,5 +354,34 @@ export async function patchBotIndexCronStability(
     cronStablePasses: next.cronStablePasses,
     newlyFinalized: next.cronFinalized && !wasFinalized,
   };
+}
+
+/** Mark Recall-side media as deleted on the bot-index (after delete_media succeeds). */
+export async function patchBotIndexRecallMediaDeleted(
+  botId: string,
+  args: { deletedAt: string },
+): Promise<void> {
+  const index = await loadBotIndexDoc(botId);
+  if (!index?.prefix) return;
+
+  const bucket = requireEnvAlias("AWS_S3_BUCKET", ["S3_BUCKET"]);
+  const botIndexKey = `alyson-notetaker/bot-index/${encodeURIComponent(botId)}.json`;
+
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: botIndexKey,
+      Body: JSON.stringify(
+        {
+          ...index,
+          recallMediaDeletedAt: args.deletedAt,
+        },
+        null,
+        2,
+      ),
+      ContentType: "application/json; charset=utf-8",
+      Metadata: { kind: "alyson-notetaker-bot-index", botid: String(botId) },
+    }),
+  );
 }
 

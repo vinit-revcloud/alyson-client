@@ -19,6 +19,7 @@ import {
 } from "@/lib/notetaker-sessions-history.server";
 import { listAllUnifiedScheduledBotSessions } from "@/lib/unifiedMeetingsService";
 import { notetakerUpstream } from "@/lib/notetaker-upstream.server";
+import { runRecallMediaCleanup, type RecallMediaCleanupResult } from "@/lib/notetaker-recall-media-cleanup.server";
 
 function normalizeSessionPayload(res: unknown, botId: string): NotetakerSessionPayload | null {
   if (!res || typeof res !== "object") return null;
@@ -50,6 +51,7 @@ export type NotetakerTranscriptCronResult = {
   upstreamUnavailable: number;
   errors: number;
   warnings: string[];
+  recallMediaCleanup?: RecallMediaCleanupResult;
 };
 
 async function collectBotIds(): Promise<{ botIds: Set<string>; warnings: string[] }> {
@@ -206,6 +208,13 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
     warnings.push(`sessions_index: ${String(e)}`);
   }
 
+  let recallMediaCleanup: RecallMediaCleanupResult | undefined;
+  try {
+    recallMediaCleanup = await runRecallMediaCleanup();
+  } catch (e) {
+    warnings.push(`recall_media_cleanup: ${String(e)}`);
+  }
+
   return {
     ok: errors === 0,
     ranAt,
@@ -220,5 +229,6 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
     upstreamUnavailable,
     errors,
     warnings: warnings.slice(0, 12),
+    recallMediaCleanup,
   };
 }

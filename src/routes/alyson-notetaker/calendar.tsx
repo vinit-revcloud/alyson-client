@@ -2,7 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/AppShell";
-import { CalendarDays, Captions, Copy, FileText, X } from "lucide-react";
+import { CalendarDays, Captions, Copy, DollarSign, FileText, X } from "lucide-react";
 import { listMeetingsFromS3Range, getMeetingNotesMdFromS3, getMeetingTranscriptTextFromS3, ensureMeetingNotesInS3Fn, auditNotetakerNotesCoverage, backfillMissingNotetakerNotes } from "@/lib/notetaker-s3-calendar-functions";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -310,6 +310,13 @@ function CalendarPage() {
         actions={
           <div className="flex items-center gap-2">
             <Link
+              to="/alyson-notetaker/cost-tracking"
+              className="h-7 px-2.5 rounded-md border border-border bg-background text-[11.5px] font-medium inline-flex items-center gap-1.5"
+            >
+              <DollarSign className="h-3.5 w-3.5" />
+              Cost tracking
+            </Link>
+            <Link
               to="/alyson-notetaker"
               onClick={() => toast.message("Alyson Notetaker")}
               reloadDocument
@@ -571,6 +578,20 @@ function CalendarPage() {
             </>
           )}
         </div>
+
+        <Link
+          to="/alyson-notetaker/cost-tracking"
+          className="surface-card p-3 flex items-center gap-3 hover:bg-muted/30 transition-colors block"
+        >
+          <DollarSign className="h-4 w-4 text-muted-foreground shrink-0" />
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium">Recall cost tracking</div>
+            <div className="text-[11px] text-muted-foreground">
+              Bot usage, cost per meeting, monthly spend &amp; AI insights
+            </div>
+          </div>
+          <span className="ml-auto text-[11px] text-muted-foreground shrink-0">Open →</span>
+        </Link>
       </div>
 
       {viewDoc && (

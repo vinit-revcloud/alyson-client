@@ -60,6 +60,7 @@ function emailLocal(email: string) {
 const PACING_ACTIVE_NO_NAMES = new Set(
   [
     "Aaradhya Badal",
+    "Aaradhy Badal",
     "Hareem Farooq",
     "Hassan Ali",
     "Saba Imran",

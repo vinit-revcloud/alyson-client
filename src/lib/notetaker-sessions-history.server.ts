@@ -71,6 +71,7 @@ type BotIndexDoc = {
   cronStablePasses?: number;
   cronFinalized?: boolean;
   cronFinalizedAt?: string;
+  recallMediaDeletedAt?: string;
 };
 
 function linesFromPlainTranscript(transcriptText: string) {
@@ -115,11 +116,11 @@ export function mergeNotetakerSessions(...lists: NotetakerSession[][]): Notetake
   return Array.from(byId.values()).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
 }
 
-async function listSessionsFromBotIndex(): Promise<NotetakerSession[]> {
+async function readBotIndexDocsFromS3(): Promise<BotIndexDoc[]> {
   const client = s3();
   const bucket = bucketName();
   const base = "alyson-notetaker/bot-index/";
-  const out: NotetakerSession[] = [];
+  const out: BotIndexDoc[] = [];
   let token: string | undefined;
 
   do {
@@ -127,6 +128,7 @@ async function listSessionsFromBotIndex(): Promise<NotetakerSession[]> {
       new ListObjectsV2Command({
         Bucket: bucket,
         Prefix: base,
+        ContinuationToken: token,
       }),
     );
     for (const obj of page.Contents ?? []) {
@@ -137,20 +139,35 @@ async function listSessionsFromBotIndex(): Promise<NotetakerSession[]> {
         if (!r.Body) continue;
         const parsed = JSON.parse(await streamToString(r.Body)) as BotIndexDoc;
         if (!parsed?.botId || parsed.version !== 1) continue;
-        const meta = parseMeetingPrefix(String(parsed.prefix || ""));
-        const storedTitle = String(parsed.title || "").trim();
-        out.push({
-          botId: String(parsed.botId),
-          title: storedTitle || meta.title,
-          createdAt: String(parsed.finalizedAt || meta.startedAt || obj.LastModified?.toISOString() || ""),
-          status: "persisted",
-        });
+        out.push(parsed);
       } catch {
         // skip corrupt index entries
       }
     }
     token = page.NextContinuationToken;
   } while (token);
+
+  return out;
+}
+
+export async function listAllBotIndexDocs(): Promise<BotIndexDoc[]> {
+  return readBotIndexDocsFromS3();
+}
+
+async function listSessionsFromBotIndex(): Promise<NotetakerSession[]> {
+  const docs = await readBotIndexDocsFromS3();
+  const out: NotetakerSession[] = [];
+
+  for (const parsed of docs) {
+    const meta = parseMeetingPrefix(String(parsed.prefix || ""));
+    const storedTitle = String(parsed.title || "").trim();
+    out.push({
+      botId: String(parsed.botId),
+      title: storedTitle || meta.title,
+      createdAt: String(parsed.finalizedAt || meta.startedAt || ""),
+      status: "persisted",
+    });
+  }
 
   return out;
 }

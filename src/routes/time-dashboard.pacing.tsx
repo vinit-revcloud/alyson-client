@@ -1,11 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import { PageHeader, TableScroll } from "@/components/AppShell";
 import { FetchingBar } from "@/components/Skeleton";
 import { TimeDashboardGate } from "@/components/TimeDashboardGate";
 import { WeeklyPacingWeekPicker } from "@/components/WeeklyPacingWeekPicker";
-import { fetchWeeklyHoursTrend, fetchWeeklyPacingReport } from "@/lib/time-doctor-pacing-functions";
+import { fetchWeeklyHoursTrend, fetchWeeklyPacingReport, getWeeklyPacingInsights } from "@/lib/time-doctor-pacing-functions";
 import { WeeklyPacingTrendPanel } from "@/components/WeeklyPacingTrendPanel";
 import { formatRangeLabel, isIsoDate } from "@/lib/time-dashboard-range";
 import {
@@ -27,7 +27,7 @@ import { downloadCSV } from "@/lib/csv";
 import { downloadWeeklyPacingPdf } from "@/lib/weekly-pacing-pdf";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, Download, FileText, RefreshCw, Search, TrendingDown } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, Copy, Download, FileText, RefreshCw, Search, Sparkles, TrendingDown } from "lucide-react";
 import { z } from "zod";
 
 export const Route = createFileRoute("/time-dashboard/pacing")({
@@ -78,6 +78,7 @@ function WeeklyPacingPage() {
   const [teamFilter, setTeamFilter] = useState("__all__");
   const [activeFilter, setActiveFilter] = useState("__all__");
   const [day, setDay] = useState(search.day ?? defaultDay);
+  const [insightsMd, setInsightsMd] = useState<string | null>(null);
 
   useEffect(() => {
     if (search.day) setDay(search.day);
@@ -86,6 +87,10 @@ function WeeklyPacingPage() {
   const appliedDay = search.day ?? defaultDay;
   const rollupDay = useMemo(() => resolvePacingRollupDay(appliedDay), [appliedDay]);
   const isHistoricalWeek = weekStartIso(appliedDay) < weekStartIso(defaultDay);
+
+  useEffect(() => {
+    setInsightsMd(null);
+  }, [rollupDay, locationFilter, teamFilter, activeFilter, searchQ]);
 
   const q = useQuery({
     queryKey: ["weekly-pacing-report", rollupDay],
@@ -192,6 +197,50 @@ function WeeklyPacingPage() {
     const behind = filteredRows.filter((r) => r.status === "behind").length;
     return { metTarget, underTarget, critical, atRisk, behind };
   }, [filteredRows]);
+
+  const insightsM = useMutation({
+    mutationFn: async () => {
+      if (!report || !summary) throw new Error("Load pacing report first");
+      const activeRows = filteredRows.filter((r) => r.active);
+      if (!activeRows.length) {
+        throw new Error("No active employees in the current view.");
+      }
+      const activeSummary = {
+        metTarget: activeRows.filter((r) => r.metTarget).length,
+        underTarget: activeRows.filter((r) => !r.metTarget).length,
+        critical: activeRows.filter((r) => r.status === "critical").length,
+        atRisk: activeRows.filter((r) => r.status === "at_risk").length,
+        behind: activeRows.filter((r) => r.status === "behind").length,
+      };
+      return getWeeklyPacingInsights({
+        data: {
+          report: {
+            company: report.company,
+            targetHours: report.targetHours,
+            timeZone: report.timeZone,
+            timeZoneLabel: report.timeZoneLabel,
+            today: report.today,
+            week: report.week,
+            pacingSampleDays: report.pacingSampleDays,
+            elapsedWorkDays: report.elapsedWorkDays,
+            totalWorkDays: report.totalWorkDays,
+            remainingWorkDays: report.remainingWorkDays,
+            generatedAt: report.generatedAt,
+            warnings: report.warnings,
+          },
+          summary: activeSummary,
+          filterSummary,
+          rows: activeRows,
+          trend: trendQ.data ?? null,
+        },
+      });
+    },
+    onSuccess: (r) => {
+      setInsightsMd(r.insightsMd);
+      toast.success("AI insights ready");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   function applyWeek() {
     navigate({
@@ -439,6 +488,71 @@ function WeeklyPacingPage() {
                 ))}
               </div>
             ) : null}
+
+            <div className="surface-card p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="font-medium text-[13px] flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" />
+                    AI insights
+                  </div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5 max-w-2xl">
+                    In-depth report: trend vs last week &amp; baseline, location/team/manager breakdowns,
+                    every active employee by status, recovery math, and action items. Inactive/resigned excluded.
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {insightsMd ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (!insightsMd.trim()) return toast.error("Nothing to copy");
+                        try {
+                          await navigator.clipboard.writeText(insightsMd);
+                          toast.success("Report copied");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Failed to copy");
+                        }
+                      }}
+                      className="h-8 w-8 grid place-items-center rounded-md border border-border bg-background text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                      title="Copy report"
+                      aria-label="Copy report"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => insightsM.mutate()}
+                    disabled={insightsM.isPending || filteredRows.filter((r) => r.active).length === 0}
+                    className="h-8 px-3 rounded-md bg-foreground text-background text-[11.5px] font-medium inline-flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {insightsM.isPending ? "Generating report…" : "Generate full report"}
+                  </button>
+                </div>
+              </div>
+              {insightsM.isPending ? (
+                <div className="border-t border-border pt-4 space-y-2">
+                  <div className="text-[12px] text-muted-foreground animate-pulse">
+                    Building executive summary, trend analysis, location/team breakdowns, and employee deep dives…
+                  </div>
+                  <div className="h-1 w-full rounded-full bg-muted overflow-hidden">
+                    <div className="h-full w-1/3 rounded-full bg-foreground/40 animate-pulse" />
+                  </div>
+                </div>
+              ) : null}
+              {insightsMd ? (
+                <div className="prose prose-sm dark:prose-invert max-w-none text-[13px] whitespace-pre-wrap border-t border-border pt-4 leading-relaxed">
+                  {insightsMd}
+                </div>
+              ) : !insightsM.isPending ? (
+                <div className="text-[12px] text-muted-foreground border-t border-border pt-3">
+                  No report yet — analyzes {filteredRows.filter((r) => r.active).length} active employee
+                  {filteredRows.filter((r) => r.active).length === 1 ? "" : "s"}. Click Generate for the full breakdown.
+                </div>
+              ) : null}
+            </div>
 
             <TableScroll>
               <div className="surface-card overflow-hidden min-w-[1700px]">

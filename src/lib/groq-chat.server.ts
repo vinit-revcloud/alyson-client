@@ -34,7 +34,7 @@ function sleep(ms: number) {
 }
 
 export function isGroqRateLimitError(message: string): boolean {
-  return /rate limit|too many requests|429/i.test(message);
+  return /rate limit|too many requests|429|tokens per day|tpd/i.test(message);
 }
 
 export function isAiRateLimitOrQuotaError(message: string): boolean {
@@ -53,11 +53,19 @@ async function groqChatOnce(
   messages: GroqMessage[],
   temperature: number,
   model: string,
+  maxTokens?: number,
 ): Promise<string> {
   const apiKey = groqApiKey();
   if (!apiKey) {
     throw new Error("Groq is not configured (set GROQ_API_KEY or ALYSON_MINI_MODULE_AI_API_KEY).");
   }
+
+  const body: Record<string, unknown> = {
+    model,
+    temperature,
+    messages,
+  };
+  if (maxTokens != null && maxTokens > 0) body.max_tokens = maxTokens;
 
   const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -65,11 +73,7 @@ async function groqChatOnce(
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      temperature,
-      messages,
-    }),
+    body: JSON.stringify(body),
   });
 
   const text = await r.text();
@@ -92,16 +96,17 @@ async function groqChatOnce(
 export async function groqChat(
   messages: GroqMessage[],
   temperature = 0.2,
-  opts?: { model?: string; maxRetries?: number; maxRetryWaitMs?: number },
+  opts?: { model?: string; maxRetries?: number; maxRetryWaitMs?: number; maxTokens?: number },
 ): Promise<string> {
   const model = opts?.model || groqModel();
   const maxRetries = opts?.maxRetries ?? 2;
   const maxRetryWaitMs = opts?.maxRetryWaitMs ?? 45_000;
+  const maxTokens = opts?.maxTokens;
 
   let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await groqChatOnce(messages, temperature, model);
+      return await groqChatOnce(messages, temperature, model, maxTokens);
     } catch (e) {
       lastError = e;
       const msg = e instanceof Error ? e.message : String(e);
