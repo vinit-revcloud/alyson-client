@@ -1,7 +1,6 @@
 import {
   deleteRecallBotMedia,
-  recallMediaCleanupEnabled,
-  recallMediaDeleteAfterMs,
+  RECALL_MEDIA_DELETE_AFTER_MS,
 } from "@/lib/recall/recall-delete-media.server";
 import { patchBotIndexRecallMediaDeleted } from "@/lib/notetaker-persistence.server";
 import { getTranscriptTextFromS3 } from "@/lib/notetaker-s3-calendar.server";
@@ -21,6 +20,9 @@ export type RecallMediaCleanupResult = {
   warnings: string[];
 };
 
+const CLEANUP_BATCH_SIZE = 100;
+const MAX_DELETIONS_PER_RUN = 500;
+
 function persistAnchorIso(doc: {
   finalizedAt?: string;
   cronFinalizedAt?: string;
@@ -30,36 +32,14 @@ function persistAnchorIso(doc: {
   return anchor;
 }
 
-function cleanupBatchSize(): number {
-  const n = Number(process.env.RECALL_MEDIA_CLEANUP_BATCH_SIZE ?? "40");
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 40;
-}
-
 /**
- * Delete Recall-side bot media once our S3 copy is at least N hours old (default 24h).
+ * Delete Recall-side bot media once our S3 copy is at least 1 day old.
  * Safe to run on a schedule — skips bots still in-call or missing S3 transcripts.
  */
 export async function runRecallMediaCleanup(): Promise<RecallMediaCleanupResult> {
-  const deleteAfterMs = recallMediaDeleteAfterMs();
-  const deleteAfterHours = deleteAfterMs / (60 * 60 * 1000);
-  const empty: RecallMediaCleanupResult = {
-    enabled: false,
-    deleteAfterHours,
-    scanned: 0,
-    eligible: 0,
-    deleted: 0,
-    skippedTooRecent: 0,
-    skippedAlreadyDeleted: 0,
-    skippedNoTranscript: 0,
-    skippedInProgress: 0,
-    errors: 0,
-    warnings: [],
-  };
-
-  if (!recallMediaCleanupEnabled()) return empty;
-
+  const deleteAfterHours = RECALL_MEDIA_DELETE_AFTER_MS / (60 * 60 * 1000);
   const now = Date.now();
-  const cutoff = now - deleteAfterMs;
+  const cutoff = now - RECALL_MEDIA_DELETE_AFTER_MS;
   const warnings: string[] = [];
   let eligible = 0;
   let deleted = 0;
@@ -87,55 +67,64 @@ export async function runRecallMediaCleanup(): Promise<RecallMediaCleanupResult>
   }
 
   eligible = pending.length;
-  const batch = pending.slice(0, cleanupBatchSize());
 
-  for (const doc of batch) {
-    const botId = String(doc.botId || "").trim();
-    if (!botId) continue;
+  for (let offset = 0; offset < pending.length && deleted < MAX_DELETIONS_PER_RUN; offset += CLEANUP_BATCH_SIZE) {
+    const batch = pending.slice(offset, offset + CLEANUP_BATCH_SIZE);
+    let recallUnavailable = false;
 
-    const transcriptKey =
-      doc.transcriptKey ||
-      (doc.prefix ? `alyson-notetaker/transcripts/${doc.prefix}/transcript.txt` : null);
-    if (!transcriptKey) {
-      skippedNoTranscript += 1;
-      continue;
-    }
+    for (const doc of batch) {
+      if (deleted >= MAX_DELETIONS_PER_RUN) break;
 
-    try {
-      const transcriptText = (await getTranscriptTextFromS3({ transcriptKey })).trim();
-      if (!transcriptText) {
+      const botId = String(doc.botId || "").trim();
+      if (!botId) continue;
+
+      const transcriptKey =
+        doc.transcriptKey ||
+        (doc.prefix ? `alyson-notetaker/transcripts/${doc.prefix}/transcript.txt` : null);
+      if (!transcriptKey) {
         skippedNoTranscript += 1;
         continue;
       }
-    } catch {
-      skippedNoTranscript += 1;
-      continue;
+
+      try {
+        const transcriptText = (await getTranscriptTextFromS3({ transcriptKey })).trim();
+        if (!transcriptText) {
+          skippedNoTranscript += 1;
+          continue;
+        }
+      } catch {
+        skippedNoTranscript += 1;
+        continue;
+      }
+
+      try {
+        const result = await deleteRecallBotMedia(botId);
+        if (result.ok) {
+          await patchBotIndexRecallMediaDeleted(botId, { deletedAt: new Date().toISOString() });
+          deleted += 1;
+          continue;
+        }
+        if (result.skipped === "bot_not_found") {
+          await patchBotIndexRecallMediaDeleted(botId, { deletedAt: new Date().toISOString() });
+          deleted += 1;
+          continue;
+        }
+        if (result.skipped === "bot_in_progress" || result.skipped === "delete_in_progress") {
+          skippedInProgress += 1;
+          continue;
+        }
+        if (result.skipped === "recall_not_configured") {
+          warnings.push("RECALL_API_KEY missing — cleanup disabled");
+          recallUnavailable = true;
+          break;
+        }
+      } catch (e) {
+        errors += 1;
+        warnings.push(`${botId}: ${String(e)}`);
+      }
     }
 
-    try {
-      const result = await deleteRecallBotMedia(botId);
-      if (result.ok) {
-        await patchBotIndexRecallMediaDeleted(botId, { deletedAt: new Date().toISOString() });
-        deleted += 1;
-        continue;
-      }
-      if (result.skipped === "bot_not_found") {
-        await patchBotIndexRecallMediaDeleted(botId, { deletedAt: new Date().toISOString() });
-        deleted += 1;
-        continue;
-      }
-      if (result.skipped === "bot_in_progress" || result.skipped === "delete_in_progress") {
-        skippedInProgress += 1;
-        continue;
-      }
-      if (result.skipped === "recall_not_configured") {
-        warnings.push("RECALL_API_KEY missing — cleanup disabled");
-        break;
-      }
-    } catch (e) {
-      errors += 1;
-      warnings.push(`${botId}: ${String(e)}`);
-    }
+    if (recallUnavailable) break;
   }
 
   return {
