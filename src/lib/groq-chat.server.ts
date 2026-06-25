@@ -21,8 +21,72 @@ export function deepseekApiKey(): string | null {
   return process.env.DEEPSEEK_API_KEY?.trim() || null;
 }
 
+const DEEPSEEK_MODEL_PREFERENCE = ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"];
+
+let deepseekModelsCache: { at: number; models: string[] } | null = null;
+
+export type DeepseekModelInfo = { id: string; ownedBy: string };
+
+/** @see https://api-docs.deepseek.com/api/list-models */
+export async function listDeepseekModels(): Promise<DeepseekModelInfo[]> {
+  const apiKey = deepseekApiKey();
+  if (!apiKey) return [];
+
+  const r = await fetch("https://api.deepseek.com/models", {
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+  const text = await r.text();
+  let json: { data?: { id?: string; owned_by?: string }[] } | null = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    // ignore
+  }
+  if (!r.ok) {
+    const msg = text.slice(0, 300) || `DeepSeek models request failed (${r.status})`;
+    throw new Error(msg);
+  }
+
+  return (json?.data ?? [])
+    .map((m) => ({
+      id: String(m.id || "").trim(),
+      ownedBy: String(m.owned_by || "deepseek").trim(),
+    }))
+    .filter((m) => m.id);
+}
+
+async function cachedDeepseekModelIds(): Promise<string[]> {
+  const hit = deepseekModelsCache;
+  if (hit && Date.now() - hit.at < 60 * 60_000) return hit.models;
+
+  const models = (await listDeepseekModels()).map((m) => m.id);
+  if (models.length) deepseekModelsCache = { at: Date.now(), models };
+  return models;
+}
+
+/** Pick the best DeepSeek chat model for meeting notes (fetched from /models when possible). */
+export async function resolveDeepseekModel(): Promise<string> {
+  const explicit = process.env.DEEPSEEK_MODEL?.trim();
+  if (explicit) return explicit;
+
+  try {
+    const available = await cachedDeepseekModelIds();
+    for (const preferred of DEEPSEEK_MODEL_PREFERENCE) {
+      if (available.includes(preferred)) return preferred;
+    }
+    if (available[0]) return available[0];
+  } catch {
+    // fall through to default
+  }
+
+  return "deepseek-v4-flash";
+}
+
 export function deepseekModel(): string {
-  return process.env.DEEPSEEK_MODEL || "deepseek-chat";
+  return process.env.DEEPSEEK_MODEL?.trim() || "deepseek-v4-flash";
 }
 
 export function meetingAiConfigured(): boolean {
@@ -205,7 +269,9 @@ export async function meetingAiChat(
   }
 
   if (deepseekApiKey()) {
-    const model = opts?.provider === "deepseek" ? opts?.model || deepseekModel() : deepseekModel();
+    const model =
+      opts?.model ||
+      (opts?.provider === "deepseek" ? await resolveDeepseekModel() : deepseekModel());
     const content = await deepseekChat(messages, temperature, { model });
     return { content, provider: "deepseek", model };
   }

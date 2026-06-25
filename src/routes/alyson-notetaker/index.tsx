@@ -5,7 +5,6 @@ import { PageHeader, EmptyState } from "@/components/AppShell";
 import {
   listNotetakerSessions,
   createNotetakerRecallBot,
-  generateNotetakerNotes,
   type NotetakerTranscriptLine,
 } from "@/lib/alyson-notetaker-functions";
 import { getNotetakerSession, loadNotetakerSessionArchive } from "@/lib/notetaker-get-session-functions";
@@ -610,20 +609,11 @@ function SessionPanel({
   }, [q.data?.autoPersistedToS3, botId, qc, onSessionsChange]);
 
   const notesM = useMutation({
-    mutationFn: async (prompt?: string) => {
-      // For very large transcripts, avoid upstream token exhaustion by chunking locally.
-      if (plainTranscript.length > 22_000) {
-        return await generateSmartMeetingNotes({ data: { title: session?.title || "Meeting", transcriptText: plainTranscript } });
-      }
-      try {
-        const res = await generateNotetakerNotes({ data: { botId: botId!, prompt } });
-        if (!String(res?.notes || "").trim()) {
-          return await generateSmartMeetingNotes({ data: { title: session?.title || "Meeting", transcriptText: plainTranscript } });
-        }
-        return res;
-      } catch {
-        return await generateSmartMeetingNotes({ data: { title: session?.title || "Meeting", transcriptText: plainTranscript } });
-      }
+    mutationFn: async () => {
+      const title = session?.title || "Meeting";
+      return generateSmartMeetingNotes({
+        data: { title, transcriptText: plainTranscript },
+      });
     },
     onSuccess: (res) => {
       setNotes(res.notes);

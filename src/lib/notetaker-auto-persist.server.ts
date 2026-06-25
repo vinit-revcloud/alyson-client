@@ -1,5 +1,4 @@
 import type { NotetakerSession, NotetakerTranscriptLine } from "@/lib/alyson-notetaker-functions";
-import { generateNotetakerNotes } from "@/lib/alyson-notetaker-functions";
 import { composeTranscript, contentHash, persistMeetingToS3 } from "@/lib/notetaker-persistence.server";
 import { withResolvedMeetingTitle } from "@/lib/notetaker-session-title.server";
 import { runSmartMeetingNotes } from "@/lib/notetaker-smart-notes.server";
@@ -83,17 +82,6 @@ async function resolveNotesForS3(args: {
       }
     } catch {
       // fall through to generation
-    }
-  }
-
-  if (!args.forceNotes) {
-    try {
-      const res = await generateNotetakerNotes({ data: { botId: args.botId, prompt: "" } });
-      if (String(res?.notes || "").trim()) {
-        return { notesMd: String(res.notes).trim(), model: res.model };
-      }
-    } catch {
-      // fall through to smart notes
     }
   }
 
