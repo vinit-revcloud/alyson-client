@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as AlertDialog from "@radix-ui/react-alert-dialog";
 import { PageHeader, TableScroll } from "@/components/AppShell";
@@ -33,7 +34,7 @@ import { downloadCSV } from "@/lib/csv";
 import { downloadWeeklyPacingPdf } from "@/lib/weekly-pacing-pdf";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, Copy, Download, FileText, RefreshCw, Search, Sparkles, TrendingDown } from "lucide-react";
+import { ArrowDownAZ, ArrowLeft, ArrowUpAZ, ChevronDown, Copy, Download, FileText, RefreshCw, Search, Sparkles, TrendingDown } from "lucide-react";
 import { z } from "zod";
 
 export const Route = createFileRoute("/time-dashboard/pacing")({
@@ -78,41 +79,137 @@ function ActiveStatusEditor({
   disabled?: boolean;
   onConfirmChange: (next: boolean) => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const [pending, setPending] = useState<boolean | null>(null);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const openMenu = useCallback(() => {
+    const el = anchorRef.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 6, left: Math.max(8, rect.left) });
+    }
+    setMenuOpen(true);
+  }, []);
+
+  const cancelClose = useCallback(() => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+  }, []);
+
+  const scheduleClose = useCallback(() => {
+    cancelClose();
+    closeTimerRef.current = setTimeout(() => setMenuOpen(false), 150);
+  }, [cancelClose]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onScroll = () => setMenuOpen(false);
+    window.addEventListener("scroll", onScroll, true);
+    return () => window.removeEventListener("scroll", onScroll, true);
+  }, [menuOpen]);
+
+  function pick(next: boolean) {
+    setMenuOpen(false);
+    if (next === row.active) return;
+    setPending(next);
+  }
+
+  const badgeClass = row.active
+    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
+    : "border-border bg-muted/40 text-muted-foreground";
 
   return (
     <>
-      <select
-        value={row.active ? "yes" : "no"}
-        disabled={disabled}
-        onChange={(e) => {
-          const next = e.target.value === "yes";
-          if (next === row.active) return;
-          setPending(next);
+      <div
+        className="relative inline-block"
+        onMouseEnter={() => {
+          if (disabled) return;
+          cancelClose();
+          openMenu();
         }}
-        title={
-          row.activeOverridden
-            ? `Manual override (auto was ${formatActiveLabel(row.computedActive ?? !row.active)}). Saved in S3.`
-            : "Change Active status — saved permanently in S3"
-        }
-        className={
-          "h-7 min-w-[4.5rem] rounded-md border px-2 text-[11px] font-medium cursor-pointer disabled:opacity-50 " +
-          (row.active
-            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
-            : "border-border bg-muted/40 text-muted-foreground")
-        }
+        onMouseLeave={scheduleClose}
       >
-        <option value="yes">Yes</option>
-        <option value="no">No</option>
-      </select>
-      {row.activeOverridden ? (
-        <div className="text-[10px] text-muted-foreground mt-0.5">Manual</div>
-      ) : null}
+        <button
+          ref={anchorRef}
+          type="button"
+          disabled={disabled}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (disabled) return;
+            cancelClose();
+            openMenu();
+          }}
+          title={
+            row.activeOverridden
+              ? `Manual override (auto was ${formatActiveLabel(row.computedActive ?? !row.active)}). Click or hover to change.`
+              : "Click or hover to change Active status"
+          }
+          className={
+            "inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-[11px] font-medium cursor-pointer transition-shadow hover:ring-2 hover:ring-foreground/15 disabled:opacity-50 disabled:cursor-not-allowed " +
+            badgeClass
+          }
+        >
+          {formatActiveLabel(row.active)}
+          <ChevronDown className="h-3 w-3 shrink-0 opacity-60" />
+        </button>
+        {row.activeOverridden ? (
+          <div className="text-[10px] text-muted-foreground mt-0.5 text-center">Manual</div>
+        ) : null}
+      </div>
+
+      {menuOpen && !disabled
+        ? createPortal(
+            <div
+              className="fixed z-[90] rounded-lg border border-border bg-paper shadow-xl p-2.5 min-w-[152px]"
+              style={{ top: menuPos.top, left: menuPos.left }}
+              onMouseEnter={cancelClose}
+              onMouseLeave={scheduleClose}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="text-[11px] font-medium text-foreground px-0.5">Change active status?</div>
+              <div className="text-[10px] text-muted-foreground px-0.5 mt-0.5 mb-2">
+                Now: <span className="font-medium text-foreground">{formatActiveLabel(row.active)}</span>
+              </div>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => pick(true)}
+                  className={
+                    "flex-1 h-7 rounded-md text-[11px] font-medium border transition-colors " +
+                    (row.active
+                      ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-800 dark:text-emerald-200"
+                      : "border-border hover:bg-emerald-500/10 hover:border-emerald-500/30")
+                  }
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => pick(false)}
+                  className={
+                    "flex-1 h-7 rounded-md text-[11px] font-medium border transition-colors " +
+                    (!row.active
+                      ? "border-border bg-muted text-foreground"
+                      : "border-border hover:bg-muted/80")
+                  }
+                >
+                  No
+                </button>
+              </div>
+              <div className="text-[10px] text-muted-foreground mt-2 px-0.5 leading-snug">
+                Saved permanently in S3
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <AlertDialog.Root open={pending != null} onOpenChange={(open) => !open && setPending(null)}>
         <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 bg-black/40 z-[80]" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[80] w-[92vw] max-w-md surface-card p-4">
+          <AlertDialog.Overlay className="fixed inset-0 bg-black/40 z-[100]" />
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] w-[92vw] max-w-md surface-card p-4">
             <AlertDialog.Title className="font-medium text-[14px]">Update Active status?</AlertDialog.Title>
             <AlertDialog.Description asChild>
               <div className="mt-2 space-y-2 text-[12px] text-muted-foreground leading-relaxed">
@@ -881,7 +978,7 @@ function WeeklyPacingPage() {
                               `${r.requiredHoursPerDay.toFixed(2)}h`
                             )}
                           </td>
-                          <td>
+                          <td className="relative" onClick={(e) => e.stopPropagation()}>
                             <ActiveStatusEditor
                               row={r}
                               disabled={activeOverrideM.isPending}
