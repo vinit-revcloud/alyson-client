@@ -6,6 +6,7 @@ import {
   shiftMonth,
   type LeaveCalendarDay,
   type LeaveCalendarEvent,
+  type LeaveCalendarEventKind,
   type LeaveEventTiming,
 } from "@/lib/leave-calendar";
 import { PACING_LEAVE_HOURS_PER_DAY } from "@/lib/weekly-pacing";
@@ -17,6 +18,7 @@ type Props = {
   todayIso: string;
   events: LeaveCalendarEvent[];
   totalTeamLeaveCount: number;
+  totalPersonalLeaveCount: number;
   selectedDay: string | null;
   onMonthChange: (yearMonth: string) => void;
   onSelectDay: (iso: string) => void;
@@ -27,11 +29,19 @@ function dayNumber(iso: string): number {
   return Number(iso.slice(8, 10));
 }
 
-function eventChipClass(timing: LeaveEventTiming): string {
-  const base = "bg-sky-500/15 text-sky-900 dark:text-sky-100 border-sky-500/25";
+function eventChipClass(kind: LeaveCalendarEventKind, timing: LeaveEventTiming): string {
+  const teamBase = "bg-sky-500/15 text-sky-900 dark:text-sky-100 border-sky-500/25";
+  const personalBase = "bg-amber-500/15 text-amber-950 dark:text-amber-100 border-amber-500/30";
+  const base = kind === "team" ? teamBase : personalBase;
   if (timing === "past") return `${base} opacity-70`;
   if (timing === "upcoming") return `${base} border-dashed`;
   return base;
+}
+
+function eventChipLabel(ev: LeaveCalendarEvent): string {
+  if (ev.kind === "team") return `${ev.label} · ${ev.location}`;
+  const team = ev.team ? ` · ${ev.team}` : "";
+  return `${ev.label}${team}`;
 }
 
 export function LeaveCalendarView({
@@ -39,6 +49,7 @@ export function LeaveCalendarView({
   todayIso,
   events,
   totalTeamLeaveCount,
+  totalPersonalLeaveCount,
   selectedDay,
   onMonthChange,
   onSelectDay,
@@ -49,9 +60,13 @@ export function LeaveCalendarView({
     [yearMonth, events, todayIso],
   );
 
-  const monthTeamBlocks = useMemo(() => {
+  const monthCounts = useMemo(() => {
     const { start, end } = monthBoundsFromYearMonth(yearMonth);
-    return events.filter((e) => e.startDate <= end && e.endDate >= start).length;
+    const inMonth = events.filter((e) => e.startDate <= end && e.endDate >= start);
+    return {
+      team: inMonth.filter((e) => e.kind === "team").length,
+      personal: inMonth.filter((e) => e.kind === "personal").length,
+    };
   }, [events, yearMonth]);
 
   return (
@@ -60,8 +75,9 @@ export function LeaveCalendarView({
         <div>
           <div className="font-medium text-[15px]">{monthLabel(yearMonth)}</div>
           <div className="text-[12px] text-muted-foreground mt-0.5">
-            {monthTeamBlocks} team leave block{monthTeamBlocks === 1 ? "" : "s"} this month ·{" "}
-            {totalTeamLeaveCount} total in ledger · +{PACING_LEAVE_HOURS_PER_DAY}h/workday in Weekly Pacing
+            {monthCounts.team} team · {monthCounts.personal} personal this month · {totalTeamLeaveCount}{" "}
+            team / {totalPersonalLeaveCount} personal in ledger · +{PACING_LEAVE_HOURS_PER_DAY}h/workday in
+            Weekly Pacing
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -94,15 +110,19 @@ export function LeaveCalendarView({
       <div className="flex flex-wrap gap-3 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5">
           <span className="h-2.5 w-2.5 rounded-sm bg-sky-500/30 border border-sky-500/40" />
-          Active team leave
+          Team leave
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-sm border border-dashed border-sky-500/50 bg-sky-500/10" />
-          Scheduled (upcoming)
+          <span className="h-2.5 w-2.5 rounded-sm bg-amber-500/30 border border-amber-500/40" />
+          Personal leave
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-sm bg-sky-500/20 border border-sky-500/30 opacity-70" />
-          Past team leave
+          <span className="h-2.5 w-2.5 rounded-sm border border-dashed border-muted-foreground/50 bg-muted/30" />
+          Upcoming
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-sm bg-muted/40 border border-border opacity-70" />
+          Past
         </span>
       </div>
 
@@ -192,10 +212,10 @@ function CalendarDayCell({
                   onSelectEvent?.(ev);
                 }
               }}
-              className={`rounded px-1 py-0.5 text-[9px] leading-tight border truncate ${eventChipClass(timing)}`}
-              title={`${ev.label} · ${ev.location} · ${ev.leaveType}`}
+              className={`rounded px-1 py-0.5 text-[9px] leading-tight border truncate ${eventChipClass(ev.kind, timing)}`}
+              title={`${ev.kind === "team" ? "Team" : "Personal"} · ${ev.label} · ${ev.leaveType}${ev.location ? ` · ${ev.location}` : ""}`}
             >
-              {ev.label} · {ev.location}
+              {eventChipLabel(ev)}
             </div>
           );
         })}

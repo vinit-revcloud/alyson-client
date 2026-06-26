@@ -1,16 +1,23 @@
-import type { TeamLeaveEvent } from "@/lib/leave-schema";
+import type { EmployeeLeaveLedger, TeamLeaveEvent } from "@/lib/leave-schema";
 import { formatTeamLeaveLabel, leaveTypeLabel } from "@/lib/leave-schema";
 import { addDaysIso, isWeekdayIso } from "@/lib/weekly-pacing";
 
-/** Team-level leave block shown on the calendar (synced from S3 `teamLeaves`). */
+export type LeaveCalendarEventKind = "team" | "personal";
+
+/** Leave block on the team calendar — team-wide or individual (from employee ledger). */
 export type LeaveCalendarEvent = {
   id: string;
-  teamEventId: string;
+  kind: LeaveCalendarEventKind;
+  /** Set when `kind` is `team`. */
+  teamEventId?: string;
+  /** Set when `kind` is `personal`. */
+  personalEventId?: string;
+  employeeId?: string;
+  employeeEmail?: string;
   startDate: string;
   endDate: string;
-  /** Team name or "All teams". */
+  /** Team name, "All teams", or employee display name. */
   label: string;
-  /** Location (e.g. Pune, Lahore). */
   location: string;
   team: string;
   leaveType: string;
@@ -79,11 +86,12 @@ export function eventsOnDay(events: LeaveCalendarEvent[], iso: string): LeaveCal
   return events.filter((e) => e.startDate <= iso && e.endDate >= iso);
 }
 
-/** Build calendar events from S3 team leave records only (same source as Leave → Employees UI). */
+/** Build calendar events from S3 team leave records (same source as Leave → Employees UI). */
 export function buildTeamLeaveCalendarEvents(teamLeaves: TeamLeaveEvent[]): LeaveCalendarEvent[] {
   return teamLeaves
     .map((tl) => ({
       id: `team-${tl.id}`,
+      kind: "team" as const,
       teamEventId: tl.id,
       startDate: tl.startDate,
       endDate: tl.endDate,
@@ -95,6 +103,55 @@ export function buildTeamLeaveCalendarEvents(teamLeaves: TeamLeaveEvent[]): Leav
       note: tl.note,
     }))
     .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.location.localeCompare(b.location));
+}
+
+/** Build calendar events from per-employee leave records in the S3 ledger. */
+export function buildPersonalLeaveCalendarEvents(ledgers: EmployeeLeaveLedger[]): LeaveCalendarEvent[] {
+  const events: LeaveCalendarEvent[] = [];
+  for (const ledger of ledgers) {
+    for (const ev of ledger.leaveEvents) {
+      events.push({
+        id: `personal-${ledger.employeeId}-${ev.id}`,
+        kind: "personal",
+        personalEventId: ev.id,
+        employeeId: ledger.employeeId,
+        employeeEmail: ledger.officialEmail,
+        startDate: ev.startDate,
+        endDate: ev.endDate,
+        label: ledger.employeeName,
+        location: ledger.location?.trim() || "",
+        team: ledger.team?.trim() || "",
+        leaveType: leaveTypeLabel(ev.leaveType),
+        days: ev.days,
+        note: ev.note,
+      });
+    }
+  }
+  return events.sort(
+    (a, b) => a.startDate.localeCompare(b.startDate) || a.label.localeCompare(b.label),
+  );
+}
+
+/** Team + personal events for the calendar grid (team blocks sort before personal on the same day). */
+export function buildLeaveCalendarEvents(
+  teamLeaves: TeamLeaveEvent[],
+  ledgers: EmployeeLeaveLedger[],
+): LeaveCalendarEvent[] {
+  const team = buildTeamLeaveCalendarEvents(teamLeaves);
+  const personal = buildPersonalLeaveCalendarEvents(ledgers);
+  return [...team, ...personal].sort((a, b) => {
+    const byStart = a.startDate.localeCompare(b.startDate);
+    if (byStart !== 0) return byStart;
+    if (a.kind !== b.kind) return a.kind === "team" ? -1 : 1;
+    return a.label.localeCompare(b.label);
+  });
+}
+
+export function filterCalendarEventsByKind(
+  events: LeaveCalendarEvent[],
+  kind: LeaveCalendarEventKind,
+): LeaveCalendarEvent[] {
+  return events.filter((e) => e.kind === kind);
 }
 
 /** Monday-start month grid — uses full event list so past/upcoming team leave always renders on the right days. */
@@ -152,7 +209,7 @@ export function buildMonthCalendarGrid(
   return weeks;
 }
 
-export function listTeamLeaveByTiming(
+export function listLeaveByTiming(
   events: LeaveCalendarEvent[],
   todayIso: string,
 ): Record<LeaveEventTiming, LeaveCalendarEvent[]> {
@@ -169,6 +226,9 @@ export function listTeamLeaveByTiming(
   buckets.past.sort((a, b) => b.startDate.localeCompare(a.startDate));
   return buckets;
 }
+
+/** @deprecated Use {@link listLeaveByTiming} */
+export const listTeamLeaveByTiming = listLeaveByTiming;
 
 /** Navigate calendar to the month containing a date. */
 export function monthContaining(iso: string): string {

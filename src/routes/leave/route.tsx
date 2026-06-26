@@ -25,7 +25,7 @@ function LeaveLayout() {
             </h1>
           </div>
           <p className="mt-1.5 text-[13px] md:text-[14px] text-muted-foreground max-w-2xl leading-relaxed">
-            Per-employee leave ledger and team leave calendar. Team leave (location + team) syncs between Employees and Team calendar — +7h/workday in Weekly Pacing.
+            Per-employee leave ledger and team calendar. Personal leave is recorded per employee; team blocks and individual leave both appear on the calendar — +7h/workday in Weekly Pacing.
           </p>
         </div>
 
