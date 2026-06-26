@@ -2,12 +2,17 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowDownAZ,
   ArrowLeft,
+  ArrowUpAZ,
   Calendar,
   Download,
+  MapPin,
   RefreshCw,
   Search,
   TrendingDown,
+  Users,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -22,6 +27,7 @@ import { pacingTodayIso } from "@/lib/weekly-pacing";
 import { monthYearFromIso, isPastMonth } from "@/lib/monthly-pacing";
 import { useAuth } from "@/lib/auth";
 import {
+  buildLeaveSummaryFromRows,
   filterPacingRows,
   formatActiveLabel,
   formatLeaveBreakdown,
@@ -48,6 +54,38 @@ export const Route = createFileRoute("/time-dashboard/monthly-pacing")({
     .parse,
   component: MonthlyPacingPage,
 });
+
+const QUICK_LOCATIONS = ["Pune", "Lahore", "Bahawalpur"] as const;
+
+function filterLabel(value: string, kind: "location" | "team"): string {
+  if (value === "__all__") return kind === "location" ? "All locations" : "All teams";
+  if (value === "__empty__") return kind === "location" ? "No location" : "No team";
+  return value;
+}
+
+function FilterPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`h-8 px-3 rounded-full border text-[12px] font-medium transition-all duration-200 ${
+        active
+          ? "border-primary bg-primary text-primary-foreground shadow-sm scale-[1.02]"
+          : "border-border bg-background text-muted-foreground hover:border-foreground/25 hover:text-foreground hover:bg-muted/40"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
 
 function statusClass(status: WeeklyPacingStatus): string {
   switch (status) {
@@ -191,7 +229,23 @@ function MonthlyPacingPage() {
     return { metTarget, underTarget, critical, atRisk, behind };
   }, [filteredRows]);
 
-  const leaveSummary = report?.leaveSummary;
+  const leaveSummary = useMemo(() => {
+    if (!report) return null;
+    const base = buildLeaveSummaryFromRows(filteredRows);
+    base.teamLeaveEvents = report.leaveSummary.teamLeaveEvents;
+    return base;
+  }, [filteredRows, report]);
+
+  const extraLocations = useMemo(
+    () =>
+      locationOptions.filter(
+        (opt) => opt !== "__empty__" && !QUICK_LOCATIONS.includes(opt as (typeof QUICK_LOCATIONS)[number]),
+      ),
+    [locationOptions],
+  );
+
+  const hasFacetFilters =
+    locationFilter !== "__all__" || teamFilter !== "__all__" || activeFilter !== "__all__";
 
   function applyMonth() {
     navigate({
@@ -199,6 +253,34 @@ function MonthlyPacingPage() {
       search: { month },
       replace: true,
     });
+  }
+
+  function applySort(field: WeeklyPacingSortField) {
+    if (sortBy === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(field);
+      setSortDir(field === "name" ? "asc" : "desc");
+    }
+  }
+
+  function sortHeaderClass(field: WeeklyPacingSortField): string {
+    return sortBy === field ? "text-foreground" : "text-muted-foreground";
+  }
+
+  function SortIcon({ field }: { field: WeeklyPacingSortField }) {
+    if (sortBy !== field) return null;
+    return sortDir === "asc" ? (
+      <ArrowUpAZ className="h-3 w-3" />
+    ) : (
+      <ArrowDownAZ className="h-3 w-3" />
+    );
+  }
+
+  function clearFacetFilters() {
+    setLocationFilter("__all__");
+    setTeamFilter("__all__");
+    setActiveFilter("__all__");
   }
 
   function exportCsv() {
@@ -258,7 +340,7 @@ function MonthlyPacingPage() {
         title="Monthly Pacing Report"
         description={
           report
-            ? `${report.company.name} · ${report.month.label} (${report.timeZoneLabel}) · as of ${fmtDate(report.today)} · Target ${report.targetHours}h (${report.totalWorkDays} workdays × ${PACING_LEAVE_HOURS_PER_DAY}h) · ${filteredRows.length}${hasAnyFilters ? `/${allRows.length}` : ""} employees${filterSummary ? ` · ${filterSummary}` : ""}`
+            ? `${report.company.name} · ${report.month.label} (${report.timeZoneLabel}) · as of ${fmtDate(report.today)} · Target ${report.targetHours}h (${report.totalWorkDays} workdays × ${PACING_LEAVE_HOURS_PER_DAY}h) · ${filteredRows.length}${hasAnyFilters ? `/${allRows.length}` : ""} employees${filterSummary ? ` · ${filterSummary}` : ""} · ${summary.metTarget} met target`
             : "Loading monthly pacing from Time Doctor…"
         }
         dense
@@ -329,26 +411,139 @@ function MonthlyPacingPage() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <FacetSelect
-                label="Location"
-                value={locationFilter}
-                onChange={setLocationFilter}
-                options={locationOptions}
-              />
-              <FacetSelect
-                label="Team"
-                value={teamFilter}
-                onChange={setTeamFilter}
-                options={teamOptions}
-              />
-              <FacetSelect
-                label="Active"
-                value={activeFilter}
-                onChange={setActiveFilter}
-                options={["yes", "no"]}
-                labels={{ yes: "Active", no: "Inactive" }}
-              />
+            <div className="surface-card overflow-hidden border-b-0">
+              <div className="border-b border-border bg-muted/20 px-4 py-3 md:px-5">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <h3 className="font-display text-base">Filters</h3>
+                    <p className="text-[12px] text-muted-foreground mt-1 max-w-2xl">
+                      Narrow the table by location, team, or active status. Click column headers to sort A–Z or Z–A.
+                    </p>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground tabular-nums text-right shrink-0">
+                    <div>
+                      <Users className="h-3.5 w-3.5 inline -mt-0.5 mr-1" />
+                      {filteredRows.length}
+                      {hasFacetFilters ? ` of ${allRows.length}` : ""} in table
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                      <MapPin className="h-3 w-3" />
+                      Location
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <FilterPill active={locationFilter === "__all__"} onClick={() => setLocationFilter("__all__")}>
+                        All
+                      </FilterPill>
+                      {QUICK_LOCATIONS.map((loc) =>
+                        locationOptions.includes(loc) ? (
+                          <FilterPill
+                            key={loc}
+                            active={locationFilter === loc}
+                            onClick={() => setLocationFilter(locationFilter === loc ? "__all__" : loc)}
+                          >
+                            {loc}
+                          </FilterPill>
+                        ) : null,
+                      )}
+                      {extraLocations.length > 0 ? (
+                        <select
+                          value={extraLocations.includes(locationFilter) ? locationFilter : ""}
+                          onChange={(e) => setLocationFilter(e.target.value || "__all__")}
+                          className={`h-8 min-w-[8rem] px-2.5 rounded-full border text-[12px] bg-background ${
+                            extraLocations.includes(locationFilter)
+                              ? "border-primary text-foreground"
+                              : "border-border text-muted-foreground"
+                          }`}
+                        >
+                          <option value="">More locations…</option>
+                          {extraLocations.map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : null}
+                      {locationOptions.includes("__empty__") ? (
+                        <FilterPill
+                          active={locationFilter === "__empty__"}
+                          onClick={() =>
+                            setLocationFilter(locationFilter === "__empty__" ? "__all__" : "__empty__")
+                          }
+                        >
+                          No location
+                        </FilterPill>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                    <div className="flex flex-col gap-2 min-w-[12rem]">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                        Team
+                      </div>
+                      <select
+                        value={teamFilter}
+                        onChange={(e) => setTeamFilter(e.target.value)}
+                        className={`h-8 w-full sm:w-auto min-w-[12rem] px-3 rounded-lg border text-[12px] bg-background transition-colors ${
+                          teamFilter !== "__all__" ? "border-primary" : "border-border"
+                        }`}
+                      >
+                        <option value="__all__">All teams</option>
+                        {teamOptions.map((opt) => (
+                          <option key={opt} value={opt}>
+                            {filterLabel(opt, "team")}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex flex-col gap-2">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
+                        Active
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(
+                          [
+                            ["__all__", "All"],
+                            ["yes", "Active"],
+                            ["no", "Inactive"],
+                          ] as const
+                        ).map(([value, label]) => (
+                          <FilterPill
+                            key={value}
+                            active={activeFilter === value}
+                            onClick={() => setActiveFilter(value)}
+                          >
+                            {label}
+                          </FilterPill>
+                        ))}
+                      </div>
+                    </div>
+
+                    {hasFacetFilters ? (
+                      <button
+                        type="button"
+                        onClick={clearFacetFilters}
+                        className="h-8 px-3 rounded-lg border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/50 sm:ml-auto inline-flex items-center gap-1"
+                      >
+                        <X className="h-3 w-3" />
+                        Clear all
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {filterSummary ? (
+                    <div className="text-[11px] text-muted-foreground">
+                      Showing <span className="text-foreground font-medium">{filterSummary}</span>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
             </div>
 
             {isHistoricalMonth ? (
@@ -357,209 +552,418 @@ function MonthlyPacingPage() {
               </p>
             ) : (
               <p className="text-[12px] text-muted-foreground">
-                Month-to-date through <strong>{fmtDate(report.today)}</strong> · projected pace extrapolates using
-                average daily hours × remaining workdays.
+                Month-to-date through <strong>{fmtDate(report.today)}</strong> · projected pace = worked + avg daily
+                hours × remaining workdays.
               </p>
             )}
 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              <Kpi
-                label="Target met"
-                value={String(summary.metTarget)}
-                hint={`≥ ${report.targetHours}h this month`}
-                accent
-              />
-              <Kpi label="Under target" value={String(summary.underTarget)} />
-              <Kpi
-                label="On leave"
-                value={String(leaveSummary?.employeesOnLeave ?? 0)}
-                hint={`+${leaveSummary?.totalLeaveHoursCredit.toFixed(0) ?? 0}h credit`}
-                icon={<Calendar className="h-3 w-3" />}
-              />
-              <Kpi
-                label="Month progress"
-                value={`${report.elapsedWorkDays}/${report.totalWorkDays}`}
-                hint={`${report.remainingWorkDays} workday${report.remainingWorkDays === 1 ? "" : "s"} left`}
-              />
-              <Kpi
-                label="Needs attention"
-                value={String(summary.critical + summary.atRisk)}
-                hint={`${summary.critical} critical · ${summary.atRisk} at risk`}
-                icon={<TrendingDown className="h-5 w-5 text-orange-600" />}
-              />
+              <div className="surface-card p-4">
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Target met</div>
+                <div className="text-2xl font-semibold mt-1 text-emerald-700 dark:text-emerald-300">
+                  {summary.metTarget}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1">≥ {report.targetHours}h this month</div>
+              </div>
+              <div className="surface-card p-4">
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Under target</div>
+                <div className="text-2xl font-semibold mt-1">{summary.underTarget}</div>
+              </div>
+              <div className="surface-card p-4">
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                  <Calendar className="h-3 w-3" />
+                  On leave
+                </div>
+                <div className="text-2xl font-semibold mt-1 text-sky-700 dark:text-sky-300">
+                  {leaveSummary?.employeesOnLeave ?? 0}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1">
+                  +{leaveSummary?.totalLeaveHoursCredit.toFixed(0) ?? 0}h credit ·{" "}
+                  {leaveSummary?.totalLeaveDays ?? 0} leave day
+                  {(leaveSummary?.totalLeaveDays ?? 0) === 1 ? "" : "s"}
+                </div>
+              </div>
+              <div className="surface-card p-4">
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Month progress</div>
+                <div className="text-2xl font-semibold mt-1">
+                  {report.elapsedWorkDays}/{report.totalWorkDays} workdays
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1">
+                  {report.remainingWorkDays} workday{report.remainingWorkDays === 1 ? "" : "s"} left
+                </div>
+              </div>
+              <div className="surface-card p-4">
+                <div className="text-[11px] text-muted-foreground uppercase tracking-wide">Needs attention</div>
+                <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
+                  <TrendingDown className="h-5 w-5 text-orange-600" />
+                  {summary.critical + summary.atRisk}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-1">
+                  {summary.critical} critical · {summary.atRisk} at risk · {summary.behind} behind
+                </div>
+              </div>
             </div>
 
-            {leaveSummary && leaveSummary.teamLeaveEvents.length > 0 ? (
-              <div className="surface-card p-4 space-y-2 border-sky-500/20 bg-sky-500/[0.03]">
-                <div className="font-medium text-[13px]">Team leave this month</div>
-                <div className="flex flex-wrap gap-2">
-                  {leaveSummary.teamLeaveEvents.map((ev) => (
-                    <div
-                      key={ev.id}
-                      className="rounded-md border border-sky-500/25 bg-background px-2.5 py-1.5 text-[11px]"
-                    >
-                      <span className="font-medium">{ev.teamLabel} · {ev.location}</span>
-                      <span className="text-muted-foreground">
-                        {" "}
-                        · {fmtDate(ev.startDate)} – {fmtDate(ev.endDate)}
-                      </span>
+            {leaveSummary && (leaveSummary.employeesOnLeave > 0 || leaveSummary.teamLeaveEvents.length > 0) ? (
+              <div className="surface-card p-4 space-y-3 border-sky-500/20 bg-sky-500/[0.03]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="font-medium text-[13px] flex items-center gap-1.5">
+                      <Calendar className="h-3.5 w-3.5 text-sky-700 dark:text-sky-300" />
+                      Leave this month
                     </div>
-                  ))}
+                    <p className="text-[12px] text-muted-foreground mt-1 max-w-3xl">
+                      From the{" "}
+                      <Link to="/leave" className="text-foreground underline underline-offset-2">
+                        Leave module
+                      </Link>{" "}
+                      — personal records and team/location leave. Each workday credits{" "}
+                      <strong>+{PACING_LEAVE_HOURS_PER_DAY}h</strong> in Logged → Worked (see table columns).
+                    </p>
+                  </div>
+                  <div className="text-[12px] text-muted-foreground shrink-0">
+                    {leaveSummary.employeesWithPersonalLeave} personal · {leaveSummary.employeesWithTeamLeave} team
+                  </div>
                 </div>
+                {leaveSummary.teamLeaveEvents.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {leaveSummary.teamLeaveEvents.map((ev) => (
+                      <div
+                        key={ev.id}
+                        className="rounded-md border border-sky-500/25 bg-background px-2.5 py-1.5 text-[11px]"
+                      >
+                        <span className="font-medium text-sky-800 dark:text-sky-200">
+                          {ev.teamLabel} · {ev.location}
+                        </span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · {fmtDate(ev.startDate)} – {fmtDate(ev.endDate)} · {ev.daysInWeek}d ({ev.leaveType})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
-            <p className="text-[12px] text-muted-foreground max-w-4xl">
-              Same rules as Weekly Pacing: <strong>Worked</strong> = logged + leave credit (+{PACING_LEAVE_HOURS_PER_DAY}h/workday).
-              Monthly target = all workdays in the month × {PACING_LEAVE_HOURS_PER_DAY}h (equivalent to 35h/week).
+            <p className="text-[12px] text-muted-foreground leading-relaxed max-w-4xl">
+              <strong>Logged</strong> = Time Doctor hours only. <strong>Leave</strong> = workdays (personal + team).{" "}
+              <strong>+Credit</strong> = leave × {PACING_LEAVE_HOURS_PER_DAY}h. <strong>Worked</strong> = logged + credit
+              (used for target). <strong>Pace</strong> = worked + avg daily × remaining workdays.
+              {" "}
+              <strong className="text-emerald-700 dark:text-emerald-300">Green rows</strong> met {report.targetHours}h.
+              {" "}
+              <strong className="text-sky-700 dark:text-sky-300">Blue-tint rows</strong> include leave credit.
             </p>
 
+            {report.warnings.length ? (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-900 dark:text-amber-200">
+                {report.warnings.map((w) => (
+                  <div key={w}>• {w}</div>
+                ))}
+              </div>
+            ) : null}
+
             <TableScroll>
-              <table className="w-full text-[12px]">
-                <thead>
-                  <tr className="border-b border-border text-muted-foreground">
-                    <th align="left">Employee</th>
-                    <th align="left">Location</th>
-                    <th align="left">Team</th>
-                    <th align="right">Logged</th>
-                    <th align="right">Leave</th>
-                    <th align="right">+Credit</th>
-                    <th align="right">Worked</th>
-                    <th align="right">Avg/day</th>
-                    <th align="right">Remaining</th>
-                    <th align="right">Projected</th>
-                    <th align="left">Active</th>
-                    <th align="left">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 ? (
+              <div className="surface-card min-w-[1700px]">
+                <table className="ops-table w-full">
+                  <thead>
                     <tr>
-                      <td colSpan={12} className="text-center text-muted-foreground py-8">
-                        No employees match the current filters.
-                      </td>
+                      <th align="left">
+                        <button
+                          type="button"
+                          onClick={() => applySort("name")}
+                          className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("name")}`}
+                        >
+                          Employee
+                          <SortIcon field="name" />
+                        </button>
+                      </th>
+                      <th align="left">
+                        <button
+                          type="button"
+                          onClick={() => applySort("location")}
+                          className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("location")}`}
+                        >
+                          Location
+                          <SortIcon field="location" />
+                        </button>
+                      </th>
+                      <th align="left">
+                        <button
+                          type="button"
+                          onClick={() => applySort("team")}
+                          className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("team")}`}
+                        >
+                          Team
+                          <SortIcon field="team" />
+                        </button>
+                      </th>
+                      <th align="left">
+                        <button
+                          type="button"
+                          onClick={() => applySort("managerName")}
+                          className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("managerName")}`}
+                        >
+                          Manager
+                          <SortIcon field="managerName" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("hoursWorkedLogged")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("hoursWorkedLogged")}`}
+                          title="Time Doctor logged hours only"
+                        >
+                          Logged
+                          <SortIcon field="hoursWorkedLogged" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("leaveDays")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("leaveDays")}`}
+                          title="Leave workdays (personal + team)"
+                        >
+                          Leave
+                          <SortIcon field="leaveDays" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("leaveHoursCredit")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("leaveHoursCredit")}`}
+                          title={`Leave credit (+${PACING_LEAVE_HOURS_PER_DAY}h per workday)`}
+                        >
+                          +Credit
+                          <SortIcon field="leaveHoursCredit" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("hoursWorked")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("hoursWorked")}`}
+                          title="Logged + leave credit — counts toward monthly target"
+                        >
+                          Worked
+                          <SortIcon field="hoursWorked" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("avgDailyPace")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("avgDailyPace")}`}
+                          title="Average daily hours month-to-date"
+                        >
+                          Avg/day
+                          <SortIcon field="avgDailyPace" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("hoursRemaining")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("hoursRemaining")}`}
+                        >
+                          Remaining
+                          <SortIcon field="hoursRemaining" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("hoursOver")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("hoursOver")}`}
+                        >
+                          Over
+                          <SortIcon field="hoursOver" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("projectedPace")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("projectedPace")}`}
+                          title={`Projected month-end hours vs ${report.targetHours}h target`}
+                        >
+                          Pace
+                          <SortIcon field="projectedPace" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("remainingWorkDays")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("remainingWorkDays")}`}
+                        >
+                          Days left
+                          <SortIcon field="remainingWorkDays" />
+                        </button>
+                      </th>
+                      <th align="right">
+                        <button
+                          type="button"
+                          onClick={() => applySort("requiredHoursPerDay")}
+                          className={`inline-flex items-center gap-1 ml-auto font-medium hover:text-foreground ${sortHeaderClass("requiredHoursPerDay")}`}
+                        >
+                          Required/day
+                          <SortIcon field="requiredHoursPerDay" />
+                        </button>
+                      </th>
+                      <th align="left">
+                        <button
+                          type="button"
+                          onClick={() => applySort("active")}
+                          className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("active")}`}
+                        >
+                          Active
+                          <SortIcon field="active" />
+                        </button>
+                      </th>
+                      <th align="left">
+                        <button
+                          type="button"
+                          onClick={() => applySort("status")}
+                          className={`inline-flex items-center gap-1 font-medium hover:text-foreground ${sortHeaderClass("status")}`}
+                        >
+                          Status
+                          <SortIcon field="status" />
+                        </button>
+                      </th>
                     </tr>
-                  ) : (
-                    rows.map((r) => (
-                      <tr key={r.id} className={rowClass(r)}>
-                        <td>
-                          <div className="font-medium">{r.name}</div>
-                          <div className="text-[11px] text-muted-foreground">{r.email}</div>
-                        </td>
-                        <td>{r.location || "—"}</td>
-                        <td>{r.team || "—"}</td>
-                        <td align="right" className="font-mono tabular-nums text-muted-foreground">
-                          {r.hoursWorkedLogged.toFixed(2)}h
-                        </td>
-                        <td align="right" className="font-mono tabular-nums" title={formatLeaveBreakdown(r)}>
-                          {r.leaveDays > 0 ? `${r.leaveDays}d` : "—"}
-                        </td>
-                        <td align="right" className="font-mono tabular-nums text-sky-700 dark:text-sky-300">
-                          {r.leaveHoursCredit > 0 ? `+${r.leaveHoursCredit.toFixed(1)}h` : "—"}
-                        </td>
-                        <td align="right" className="font-mono tabular-nums font-medium">
-                          {r.hoursWorked.toFixed(2)}h
-                        </td>
-                        <td align="right" className="font-mono tabular-nums">
-                          {r.avgDailyPace.toFixed(2)}h
-                        </td>
-                        <td align="right" className="font-mono tabular-nums">
-                          {r.hoursRemaining > 0 ? `${r.hoursRemaining.toFixed(2)}h` : "—"}
-                        </td>
-                        <td align="right" className="font-mono tabular-nums">
-                          {r.projectedPace.toFixed(2)}h
-                        </td>
-                        <td>
-                          <WeeklyPacingActiveCell
-                            row={r}
-                            disabled={activeM.isPending}
-                            onConfirmChange={(active) =>
-                              activeM.mutate({
-                                employeeId: r.id,
-                                email: r.email,
-                                name: r.name,
-                                active,
-                              })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${statusClass(r.status)}`}
-                          >
-                            {PACING_STATUS_LABEL[r.status]}
-                          </span>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={16} className="text-center text-muted-foreground py-8">
+                          {searchQ.trim()
+                            ? "No employees match your search."
+                            : "No employees found for this month."}
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      rows.map((r) => (
+                        <tr key={r.id} className={rowClass(r)}>
+                          <td>
+                            <div className="font-medium text-[13px]">{r.name}</div>
+                            <div className="text-[11px] text-muted-foreground">{r.email}</div>
+                          </td>
+                          <td className="text-[13px]">{r.location || "—"}</td>
+                          <td className="text-[13px]">{r.team || "—"}</td>
+                          <td>
+                            <div className="text-[13px]">{r.managerName || "—"}</div>
+                            {r.managerEmail ? (
+                              <div className="text-[11px] text-muted-foreground">{r.managerEmail}</div>
+                            ) : null}
+                          </td>
+                          <td align="right" className="font-mono tabular-nums text-muted-foreground">
+                            {r.hoursWorkedLogged.toFixed(2)}h
+                          </td>
+                          <td
+                            align="right"
+                            className="font-mono tabular-nums"
+                            title={formatLeaveBreakdown(r)}
+                          >
+                            {r.leaveDays > 0 ? (
+                              <>
+                                <span className="font-medium text-sky-700 dark:text-sky-300">
+                                  {r.leaveDays}d
+                                </span>
+                                <div className="text-[10px] text-muted-foreground font-normal max-w-[88px] ml-auto leading-tight">
+                                  {formatLeaveBreakdown(r)}
+                                </div>
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td align="right" className="font-mono tabular-nums">
+                            {r.leaveHoursCredit > 0 ? (
+                              <span className="font-medium text-sky-700 dark:text-sky-300">
+                                +{r.leaveHoursCredit.toFixed(0)}h
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td
+                            align="right"
+                            className={`font-mono tabular-nums ${r.metTarget ? "font-semibold text-emerald-700 dark:text-emerald-300" : "font-medium"}`}
+                          >
+                            {r.hoursWorked.toFixed(2)}h
+                          </td>
+                          <td align="right" className="font-mono tabular-nums text-muted-foreground">
+                            {r.avgDailyPace.toFixed(2)}h
+                          </td>
+                          <td align="right" className="font-mono tabular-nums font-medium">
+                            {r.metTarget ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              `${r.hoursRemaining.toFixed(2)}h`
+                            )}
+                          </td>
+                          <td align="right" className="font-mono tabular-nums">
+                            {r.hoursOver > 0 ? (
+                              <span className="font-medium text-emerald-700 dark:text-emerald-300">
+                                +{r.hoursOver.toFixed(2)}h
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td
+                            align="right"
+                            className={`font-mono tabular-nums font-semibold ${r.projectedPace >= report.targetHours ? "text-emerald-700 dark:text-emerald-300" : "text-orange-700 dark:text-orange-300"}`}
+                            title={`${r.paceDelta >= 0 ? "+" : ""}${r.paceDelta.toFixed(2)}h vs ${report.targetHours}h target`}
+                          >
+                            {r.projectedPace.toFixed(2)}h
+                          </td>
+                          <td align="right" className="font-mono tabular-nums text-muted-foreground">
+                            {r.metTarget ? "—" : r.remainingWorkDays}
+                          </td>
+                          <td align="right" className="font-mono tabular-nums font-medium">
+                            {r.metTarget ? (
+                              <span className="text-muted-foreground">—</span>
+                            ) : (
+                              `${r.requiredHoursPerDay.toFixed(2)}h`
+                            )}
+                          </td>
+                          <td className="relative z-10 isolate" onClick={(e) => e.stopPropagation()}>
+                            <WeeklyPacingActiveCell
+                              row={r}
+                              disabled={activeM.isPending}
+                              onConfirmChange={(active) =>
+                                activeM.mutate({
+                                  employeeId: r.id,
+                                  email: r.email,
+                                  name: r.name,
+                                  active,
+                                })
+                              }
+                            />
+                          </td>
+                          <td>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${statusClass(r.status)}`}
+                            >
+                              {PACING_STATUS_LABEL[r.status]}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </TableScroll>
           </>
         ) : null}
       </div>
     </div>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  hint,
-  accent,
-  icon,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-  accent?: boolean;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <div className="surface-card p-4">
-      <div className="text-[11px] text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-        {icon}
-        {label}
-      </div>
-      <div
-        className={`text-2xl font-semibold mt-1 ${accent ? "text-emerald-700 dark:text-emerald-300" : ""}`}
-      >
-        {value}
-      </div>
-      {hint ? <div className="text-[11px] text-muted-foreground mt-1">{hint}</div> : null}
-    </div>
-  );
-}
-
-function FacetSelect({
-  label,
-  value,
-  onChange,
-  options,
-  labels,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  options: string[];
-  labels?: Record<string, string>;
-}) {
-  return (
-    <label className="inline-flex items-center gap-1.5 text-[11px]">
-      <span className="text-muted-foreground">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-7 px-2 rounded-md border border-border bg-background text-[11px]"
-      >
-        <option value="__all__">All</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {labels?.[o] ?? (o === "__empty__" ? "Not set" : o)}
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }
