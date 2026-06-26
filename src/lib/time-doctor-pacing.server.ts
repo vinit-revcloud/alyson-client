@@ -8,6 +8,7 @@ import {
 } from "@/lib/weekly-pacing-leave.server";
 import { getLeaveFromS3 } from "@/lib/leave-s3.server";
 import { getOrgChartRosterLookup } from "@/lib/org-chart-roster.server";
+import { attachManagerToPacingRow } from "@/lib/org-chart-roster";
 import { getCintaraActiveMemberLookup } from "@/lib/cintara-active-members.server";
 import {
   loadWeeklyPacingActiveOverridesForReport,
