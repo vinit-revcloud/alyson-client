@@ -61,7 +61,7 @@ function LeaveCalendarPage() {
   const personalEvents = useMemo(() => filterCalendarEventsByKind(events, "personal"), [events]);
 
   const personalLeaveCount = useMemo(
-    () => ledgers.reduce((n, l) => n + l.leaveEvents.length, 0),
+    () => ledgers.filter((l) => l.active).reduce((n, l) => n + l.leaveEvents.length, 0),
     [ledgers],
   );
 

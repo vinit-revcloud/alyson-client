@@ -105,10 +105,11 @@ export function buildTeamLeaveCalendarEvents(teamLeaves: TeamLeaveEvent[]): Leav
     .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.location.localeCompare(b.location));
 }
 
-/** Build calendar events from per-employee leave records in the S3 ledger. */
+/** Build calendar events from per-employee leave records in the S3 ledger (active employees only). */
 export function buildPersonalLeaveCalendarEvents(ledgers: EmployeeLeaveLedger[]): LeaveCalendarEvent[] {
   const events: LeaveCalendarEvent[] = [];
   for (const ledger of ledgers) {
+    if (!ledger.active) continue;
     for (const ev of ledger.leaveEvents) {
       events.push({
         id: `personal-${ledger.employeeId}-${ev.id}`,
