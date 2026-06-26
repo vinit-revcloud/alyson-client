@@ -1,6 +1,7 @@
 import { Outlet, createRootRoute, HeadContent, Scripts, useRouterState, useNavigate, Link } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { hydrateHeavyReportQueries } from "@/lib/heavy-report-query-cache";
 
 import appCss from "../styles.css?url";
 import { AppShell } from "@/components/AppShell";
@@ -77,9 +78,13 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  const [queryClient] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: false } } })
-  );
+  const [queryClient] = useState(() => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { staleTime: 60_000, refetchOnWindowFocus: false } },
+    });
+    hydrateHeavyReportQueries(client);
+    return client;
+  });
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>

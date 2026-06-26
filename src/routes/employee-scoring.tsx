@@ -6,6 +6,10 @@ import { toast } from "sonner";
 import { EmptyState, PageHeader, TableScroll } from "@/components/AppShell";
 import { TableSkeleton } from "@/components/Skeleton";
 import { downloadCSV } from "@/lib/csv";
+import {
+  employeeScoringQueryKey,
+  heavyReportQueryOptions,
+} from "@/lib/heavy-report-query-cache";
 import { getEmployeeScoring } from "@/lib/employee-scoring-functions";
 import { downloadEmployeeScoringPdf } from "@/lib/employee-scoring-pdf";
 import {
@@ -106,7 +110,9 @@ function EmployeeScoringPage() {
   }, [applied, boot?.snapshotAt]);
 
   const q = useQuery({
-    queryKey: ["employee-scoring", applied?.start ?? "idle", applied?.end ?? "idle", "calendar-meetings"],
+    queryKey: applied
+      ? employeeScoringQueryKey(applied)
+      : (["employee-scoring", "idle", "idle", "calendar-meetings"] as const),
     queryFn: () =>
       getEmployeeScoring({
         data: applied ? { start: applied.start, end: applied.end } : undefined,
@@ -115,9 +121,7 @@ function EmployeeScoringPage() {
     initialData: persisted?.snapshot,
     initialDataUpdatedAt: persisted?.at,
     placeholderData: keepPreviousData,
-    staleTime: 120_000,
-    gcTime: 24 * 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    ...heavyReportQueryOptions,
   });
 
   const draftRange = useMemo(() => {
@@ -284,7 +288,7 @@ function EmployeeScoringPage() {
     if (coldLoad) {
       return {
         tone: "loading" as const,
-        text: "Computing scores from Google Workspace and Time Doctor — this can take a minute for large teams.",
+        text: "Computing scores from Google Workspace and Time Doctor — cached for 1 hour after first load.",
       };
     }
     if (showingStaleWindow) {

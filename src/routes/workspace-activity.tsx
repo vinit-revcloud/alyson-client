@@ -8,6 +8,10 @@ import { EmptyState, PageHeader, TableScroll } from "@/components/AppShell";
 import { FetchingBar, PageSkeleton, Shimmer, TableSkeleton } from "@/components/Skeleton";
 import { downloadCSV } from "@/lib/csv";
 import {
+  heavyReportQueryOptions,
+  workspaceActivityQueryKey,
+} from "@/lib/heavy-report-query-cache";
+import {
   loadWorkspaceActivitySession,
   readWorkspaceActivitySnapshot,
   saveWorkspaceActivitySession,
@@ -88,7 +92,9 @@ function WorkspaceActivityPage() {
   }, [applied, boot?.snapshotAt]);
 
   const q = useQuery({
-    queryKey: ["workspace-activity", applied?.start ?? "idle", applied?.end ?? "idle", "calendar"],
+    queryKey: applied
+      ? workspaceActivityQueryKey(applied)
+      : (["workspace-activity", "idle", "idle", "calendar"] as const),
     queryFn: () =>
       getWorkspaceActivity({
         data: applied
@@ -104,9 +110,7 @@ function WorkspaceActivityPage() {
     initialData: persisted?.snapshot,
     initialDataUpdatedAt: persisted?.at,
     placeholderData: keepPreviousData,
-    staleTime: 120_000,
-    gcTime: 24 * 60 * 60 * 1000,
-    refetchOnWindowFocus: false,
+    ...heavyReportQueryOptions,
   });
 
   const draftRange = useMemo(() => {
@@ -278,7 +282,7 @@ function WorkspaceActivityPage() {
     if (coldLoad) {
       return {
         tone: "loading" as const,
-        text: "Loading workspace activity from Google (first load is slower; cached for 5 minutes).",
+        text: "Loading workspace activity from Google (cached for 1 hour — use Refresh to update).",
       };
     }
     if (showingStaleWindow) {
