@@ -12,6 +12,7 @@ import {
 } from "@/lib/leave-schema";
 import {
   PACING_LEAVE_HOURS_PER_DAY,
+  isWeekdayIso,
   type WeeklyPacingTeamLeaveSummary,
 } from "@/lib/weekly-pacing";
 
@@ -143,6 +144,35 @@ export function resolveLeaveBreakdownForEmployee(
   },
 ): EmployeeLeaveBreakdown {
   return leaveBreakdownForEmployee(ctx, args);
+}
+
+function isWeekdayOnLeave(ranges: LeaveDateRange[], day: string): boolean {
+  if (!isWeekdayIso(day)) return false;
+  return ranges.some((r) => day >= r.startDate && day <= r.endDate);
+}
+
+/** Per Mon–Thu sample day: +7h credit when that weekday is on personal or team leave. */
+export function resolveDailyLeaveHoursForSample(
+  ctx: PacingLeaveContext,
+  args: {
+    employeeId: string;
+    email: string;
+    team?: string | null;
+    location?: string | null;
+  },
+  sampleDays: string[],
+): number[] {
+  const personalRanges = personalRangesForEmployee(ctx.employees, args.employeeId, args.email);
+  const teamRanges = teamLeavesForEmployee(
+    ctx.teamLeaves,
+    args.location?.trim() ?? "",
+    args.team?.trim() ?? "",
+  ).map((e) => ({ startDate: e.startDate, endDate: e.endDate }));
+  const allRanges = [...personalRanges, ...teamRanges];
+
+  return sampleDays.map((day) =>
+    isWeekdayOnLeave(allRanges, day) ? PACING_LEAVE_HOURS_PER_DAY : 0,
+  );
 }
 
 /** @deprecated Use resolveLeaveBreakdownForEmployee */

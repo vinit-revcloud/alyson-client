@@ -1,8 +1,12 @@
 import {
   loadPacingLeaveContext,
+  resolveDailyLeaveHoursForSample,
   resolveLeaveBreakdownForEmployee,
   summarizeTeamLeavesForWeek,
+  pacingLeaveHoursCredit,
+  buildPacingLeaveContext,
 } from "@/lib/weekly-pacing-leave.server";
+import { getLeaveFromS3 } from "@/lib/leave-s3.server";
 import { getOrgChartRosterLookup } from "@/lib/org-chart-roster.server";
 import { getCintaraActiveMemberLookup } from "@/lib/cintara-active-members.server";
 import {
@@ -196,6 +200,11 @@ export async function buildWeeklyPacingReport(args?: {
         team: meta.team,
         location: meta.location,
       });
+      const dailyLeaveHours = resolveDailyLeaveHoursForSample(
+        leaveCtx,
+        { employeeId: u.id, email, team: meta.team, location: meta.location },
+        sampleDays,
+      );
       const daySeconds = sampleDays.map((day) => {
         const cacheKey = `${company.id}:${day}:${day}`;
         const dayMap = rangeCache.get(cacheKey);
@@ -207,7 +216,9 @@ export async function buildWeeklyPacingReport(args?: {
         name,
         title: u.title ?? "",
         weeklySeconds: weekly.get(u.id) ?? 0,
-        dailyHours: daySeconds.map((s) => s / 3600),
+        dailyHours: daySeconds.map((s, i) =>
+          Math.round((s / 3600 + (dailyLeaveHours[i] ?? 0)) * 100) / 100,
+        ),
         metrics,
         today: rollupDay,
         weekStart: pacingWeekStart,
@@ -291,6 +302,13 @@ export async function buildWeeklyHoursTrendReport(args?: {
     activeFilter,
   });
 
+  let leaveFile: Awaited<ReturnType<typeof getLeaveFromS3>>["file"] = null;
+  try {
+    leaveFile = (await getLeaveFromS3()).file;
+  } catch (e) {
+    warnings.push(`leave-ledger: ${String(e)}`);
+  }
+
   const currentWeekStart = weekStartIso(today);
   const weekStarts: string[] = [];
   for (let i = weekCount - 1; i >= 0; i--) {
@@ -326,9 +344,22 @@ export async function buildWeeklyHoursTrendReport(args?: {
 
         let totalSeconds = 0;
         let counted = 0;
+        const weekLeaveCtx = buildPacingLeaveContext(leaveFile, weekStart, weekEnd);
         for (const userId of filteredUserIds) {
+          const u = users.find((user) => user.id === userId);
+          if (!u) continue;
+          const email = (u.email || "").trim();
+          const name = (u.name || u.email || "").trim();
+          const meta = attachManagerToPacingRow({ email, name }, ctx.rosterLookup);
+          const leave = resolveLeaveBreakdownForEmployee(weekLeaveCtx, {
+            employeeId: userId,
+            email,
+            team: meta.team,
+            location: meta.location,
+          });
           const seconds = weekly.get(userId) ?? 0;
-          totalSeconds += seconds;
+          const leaveSeconds = pacingLeaveHoursCredit(leave.leaveDays) * 3600;
+          totalSeconds += seconds + leaveSeconds;
           counted += 1;
         }
 
