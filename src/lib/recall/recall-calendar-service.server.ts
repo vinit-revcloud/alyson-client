@@ -18,6 +18,7 @@ import {
   signOAuthState,
   syncRecallCalendarEvents,
   verifyOAuthState,
+  MAX_NEW_BOTS_PER_SYNC,
 } from "@/lib/recall/recall-calendar-sync.server";
 import type { RecallCalendarWebhookPayload } from "@/lib/recall/recall-calendar-types";
 import { googleOAuthClientId, googleOAuthClientSecret } from "@/lib/recall/google-calendar-oauth.server";
@@ -194,11 +195,15 @@ export async function handleRecallCalendarWebhook(payload: RecallCalendarWebhook
         allowlist: getRecallCalendarAllowlist(),
       };
     }
-    // Webhook: refresh calendar event index only — never auto-schedule bots (use Smart schedule UI).
+    // Auto-schedule bots for new upcoming meetings when calendar events change.
     return syncRecallCalendarEvents({
       calendarId: calendar_id,
       updatedAtGte: last_updated_ts,
       ownerEmail,
+      scheduleAll: true,
+      verifyExistingBots: true,
+      maxNewBots: MAX_NEW_BOTS_PER_SYNC,
+      refreshBotConfig: false,
     });
   }
 

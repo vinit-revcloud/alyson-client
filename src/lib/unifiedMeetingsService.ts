@@ -2,7 +2,7 @@ import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { dispatchBotWithLiveTranscripts } from "@/lib/notetaker-bot-dispatch.server";
+import { dispatchBotWithLiveTranscripts, ensureBotTranscriptPipeline } from "@/lib/notetaker-bot-dispatch.server";
 import { resolveRecallTranscriptWebhookUrl } from "@/lib/recall/recall-bot-config.server";
 import { registerScheduledBotInSessionsCatalog } from "@/lib/notetaker-scheduled-catalog.server";
 import { unifiedScheduledStatusForUi } from "@/lib/unified-scheduled-lifecycle.server";
@@ -583,7 +583,6 @@ async function dispatchBotForMeeting(
     botJoinAt: joinAt,
     title: meeting.title,
     joinOffsetMinutes,
-    preferScheduledJoin: true,
     metadata: {
       source: "unified_meetings",
       google_event_id: meeting.googleEventId,
@@ -624,6 +623,16 @@ async function scheduleMeetingInternal(
     Boolean(options?.forceRedispatch) || (existingIdx >= 0 && inWindow && priorJoinPassed);
 
   if (existingIdx >= 0 && !shouldRedispatch) {
+    const existing = state.scheduled[existingIdx]!;
+    if (existing.recallBotId) {
+      await ensureBotTranscriptPipeline({
+        botId: existing.recallBotId,
+        title: buildUnifiedTitle(meeting.title, meeting.startTime),
+        meetingUrl: meeting.meetingUrl!,
+        botJoinAt: existing.botJoinAt || joinAt,
+        metadata: { source: "unified_meetings", google_event_id: meeting.googleEventId },
+      });
+    }
     return { scheduled: false, error: "Already scheduled (dedupe). Bot id is stored in S3 state." };
   }
 

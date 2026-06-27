@@ -1,7 +1,20 @@
-import { patchRecallBotRecordingConfig, recallBotRecordingConfig } from "@/lib/recall/recall-bot-config.server";
+import {
+  patchRecallBotRecordingConfig,
+  recallBotRecordingConfig,
+  resolveRecallTranscriptWebhookUrl,
+} from "@/lib/recall/recall-bot-config.server";
 import { recallFetch } from "@/lib/recall/recall-client.server";
+import { registerScheduledBotInSessionsCatalog } from "@/lib/notetaker-scheduled-catalog.server";
 
 export type BotDispatchSource = "notetaker_managed" | "direct_recall_fallback";
+
+export type BotSessionLinkArgs = {
+  botId: string;
+  title: string;
+  meetingUrl: string;
+  botJoinAt: string;
+  metadata?: Record<string, unknown>;
+};
 
 function notetakerBaseUrl(): string {
   const raw =
@@ -25,39 +38,99 @@ function requireRecallApiKey(): string {
   return key;
 }
 
-/** Future scheduled joins must use Recall direct — Notetaker create-bot often joins immediately. */
-const FUTURE_SCHEDULE_THRESHOLD_MS = 90 * 1000;
-
-function isFutureScheduledJoin(botJoinAt: string): boolean {
-  const joinMs = new Date(botJoinAt).getTime();
-  return Number.isFinite(joinMs) && joinMs > Date.now() + FUTURE_SCHEDULE_THRESHOLD_MS;
-}
-
-/** Register Notetaker session + ensure Recall transcript webhooks after Recall-direct dispatch. */
-async function warmNotetakerSession(botId: string): Promise<void> {
-  const id = String(botId || "").trim();
-  if (!id) return;
-
-  try {
-    await patchRecallBotRecordingConfig(id);
-  } catch {
-    // Bot may already be in-call; PATCH is best-effort.
-  }
-
+async function notetakerPost(path: string, body: unknown, timeoutMs = 20_000): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    await fetch(`${notetakerBaseUrl()}/api/session/${encodeURIComponent(id)}`, {
+    return await fetch(`${notetakerBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
-  } catch {
-    // Non-fatal — session is created on first UI poll if this fails.
   } finally {
     clearTimeout(timeout);
   }
 }
 
-/** Preferred path: Notetaker service (live transcripts + session catalog). */
+async function notetakerGet(path: string, timeoutMs = 12_000): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(`${notetakerBaseUrl()}${path.startsWith("/") ? "" : "/"}${path}`, {
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * After Recall-direct bot creation, register the session in Notetaker and ensure transcript webhooks.
+ * Tries register-bot (adopt existing Recall id), then session wake-up.
+ */
+export async function linkBotToNotetakerSession(args: BotSessionLinkArgs): Promise<void> {
+  const botId = String(args.botId || "").trim();
+  if (!botId) return;
+
+  try {
+    await patchRecallBotRecordingConfig(botId);
+  } catch (e) {
+    console.warn(`[notetaker-dispatch] patch recording config for ${botId}:`, e);
+  }
+
+  const registerPayload = {
+    bot_id: botId,
+    botId,
+    title: args.title,
+    meeting_url: args.meetingUrl,
+    join_at: args.botJoinAt,
+    metadata: {
+      ...(args.metadata ?? {}),
+      transcript_webhook_url: resolveRecallTranscriptWebhookUrl(),
+    },
+  };
+
+  let registered = false;
+  try {
+    const res = await notetakerPost("/api/register-bot", registerPayload);
+    if (res.ok) {
+      registered = true;
+    } else if (res.status !== 404 && res.status !== 405) {
+      const txt = await res.text().catch(() => "");
+      console.warn(`[notetaker-dispatch] register-bot ${res.status} for ${botId}: ${txt.slice(0, 200)}`);
+    }
+  } catch (e) {
+    console.warn(`[notetaker-dispatch] register-bot unreachable for ${botId}:`, e);
+  }
+
+  if (!registered) {
+    try {
+      const res = await notetakerGet(`/api/session/${encodeURIComponent(botId)}`);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        console.warn(`[notetaker-dispatch] session wake ${res.status} for ${botId}: ${txt.slice(0, 200)}`);
+      }
+    } catch (e) {
+      console.warn(`[notetaker-dispatch] session wake failed for ${botId}:`, e);
+    }
+  }
+
+  await registerScheduledBotInSessionsCatalog({
+    botId,
+    title: args.title,
+    meetingUrl: args.meetingUrl,
+    createdAt: new Date().toISOString(),
+    status: "scheduled",
+  });
+}
+
+/** Re-apply transcript webhooks + Notetaker session for an already-scheduled bot. */
+export async function ensureBotTranscriptPipeline(args: BotSessionLinkArgs): Promise<void> {
+  await linkBotToNotetakerSession(args);
+}
+
+/** Preferred path: Notetaker service (live transcripts + session catalog). Supports join_at for future joins. */
 async function createViaNotetaker(args: {
   meetingUrl: string;
   botJoinAt: string;
@@ -65,22 +138,14 @@ async function createViaNotetaker(args: {
   botName: string;
   metadata: Record<string, unknown>;
 }): Promise<{ botId: string }> {
-  const url = `${notetakerBaseUrl()}/api/create-bot`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 20_000);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      meeting_url: args.meetingUrl,
-      bot_name: args.botName,
-      title: args.title,
-      join_at: args.botJoinAt,
-      metadata: args.metadata,
-      ...recallBotRecordingConfig(),
-    }),
-    signal: controller.signal,
-  }).finally(() => clearTimeout(timeout));
+  const res = await notetakerPost("/api/create-bot", {
+    meeting_url: args.meetingUrl,
+    bot_name: args.botName,
+    title: args.title,
+    join_at: args.botJoinAt,
+    metadata: args.metadata,
+    ...recallBotRecordingConfig(),
+  });
 
   const txt = await res.text();
   let body: unknown = null;
@@ -95,7 +160,12 @@ async function createViaNotetaker(args: {
       `Notetaker create bot failed (${res.status})`;
     throw new Error(String(msg));
   }
-  const botId = String((body as { botId?: string; id?: string; bot_id?: string })?.botId || (body as { id?: string })?.id || (body as { bot_id?: string })?.bot_id || "");
+  const botId = String(
+    (body as { botId?: string; id?: string; bot_id?: string })?.botId ||
+      (body as { id?: string })?.id ||
+      (body as { bot_id?: string })?.bot_id ||
+      "",
+  );
   if (!botId) throw new Error("Notetaker create bot succeeded but bot id was missing");
   return { botId };
 }
@@ -157,8 +227,8 @@ export async function cancelScheduledRecallBot(botId: string): Promise<void> {
 }
 
 /**
- * Create a Recall bot through Notetaker (live transcripts) with direct Recall fallback.
- * Used by Unified Meetings manual schedule and Recall Calendar smart schedule.
+ * Create a Recall bot with live transcript pipeline.
+ * Always prefers Notetaker `/api/create-bot` (including future join_at) so sessions + webhooks register correctly.
  */
 export async function dispatchBotWithLiveTranscripts(args: {
   meetingUrl: string;
@@ -166,7 +236,7 @@ export async function dispatchBotWithLiveTranscripts(args: {
   title: string;
   metadata: Record<string, unknown>;
   joinOffsetMinutes?: number;
-  /** @deprecated Notetaker is always preferred — kept for call-site compatibility. */
+  /** @deprecated Ignored — Notetaker is always tried first for scheduled and immediate joins. */
   preferScheduledJoin?: boolean;
 }): Promise<{ botId: string; creationSource: BotDispatchSource }> {
   const botName = process.env.BOT_NAME?.trim() || "Alyson Notetaker";
@@ -174,6 +244,15 @@ export async function dispatchBotWithLiveTranscripts(args: {
     ...args.metadata,
     bot_join_offset_minutes: args.joinOffsetMinutes ?? 2,
     scheduled_join_at: args.botJoinAt,
+    transcript_webhook_url: resolveRecallTranscriptWebhookUrl(),
+  };
+
+  const sessionLink: BotSessionLinkArgs = {
+    botId: "",
+    title: args.title,
+    meetingUrl: args.meetingUrl,
+    botJoinAt: args.botJoinAt,
+    metadata,
   };
 
   const recallDispatch = async () => {
@@ -183,7 +262,7 @@ export async function dispatchBotWithLiveTranscripts(args: {
       botName,
       metadata,
     });
-    await warmNotetakerSession(botId);
+    await linkBotToNotetakerSession({ ...sessionLink, botId });
     return { botId, creationSource: "direct_recall_fallback" as const };
   };
 
@@ -195,26 +274,16 @@ export async function dispatchBotWithLiveTranscripts(args: {
       botName,
       metadata,
     });
+    await registerScheduledBotInSessionsCatalog({
+      botId,
+      title: args.title,
+      meetingUrl: args.meetingUrl,
+      createdAt: new Date().toISOString(),
+      status: "scheduled",
+    });
     return { botId, creationSource: "notetaker_managed" as const };
   };
 
-  const recallFirst = Boolean(args.preferScheduledJoin || isFutureScheduledJoin(args.botJoinAt));
-
-  if (recallFirst) {
-    try {
-      return await recallDispatch();
-    } catch (recallErr) {
-      try {
-        return await notetakerDispatch();
-      } catch (notetakerErr) {
-        const rc = recallErr instanceof Error ? recallErr.message : String(recallErr);
-        const nt = notetakerErr instanceof Error ? notetakerErr.message : String(notetakerErr);
-        throw new Error(`Recall scheduled join: ${rc}; Notetaker fallback: ${nt}`);
-      }
-    }
-  }
-
-  // Immediate join: Notetaker first (registers live transcript session), Recall fallback.
   try {
     return await notetakerDispatch();
   } catch (notetakerErr) {

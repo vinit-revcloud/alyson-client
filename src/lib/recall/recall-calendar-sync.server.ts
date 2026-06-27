@@ -7,7 +7,7 @@ import {
   unifiedScheduledStateUsesS3,
   type UnifiedScheduledStateEntry,
 } from "@/lib/unified-scheduled-s3.server";
-import { cancelScheduledRecallBot, dispatchBotWithLiveTranscripts } from "@/lib/notetaker-bot-dispatch.server";
+import { cancelScheduledRecallBot, dispatchBotWithLiveTranscripts, ensureBotTranscriptPipeline } from "@/lib/notetaker-bot-dispatch.server";
 import {
   eventTitleFromRaw,
   listAllRecallCalendarEvents,
@@ -22,7 +22,7 @@ import { isActiveUnifiedScheduledStatus } from "@/lib/unified-scheduled-lifecycl
 const BOT_JOIN_OFFSET_MS = 2 * 60 * 1000;
 const SYNC_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const SYNC_LOOKAHEAD_MS = 14 * 24 * 60 * 60 * 1000;
-const MAX_NEW_BOTS_PER_SYNC = 30;
+export const MAX_NEW_BOTS_PER_SYNC = 30;
 
 function isUpcomingRecallEvent(event: RecallCalendarEvent): boolean {
   const startMs = new Date(event.start_time).getTime();
@@ -134,7 +134,19 @@ export async function processRecallCalendarEvent(
   }
 
   if (existingBotId && !shouldRefreshConfig) {
-    return { action: "skipped", reason: "Bot already scheduled for this event" };
+    const title = eventTitleFromRaw(event);
+    await ensureBotTranscriptPipeline({
+      botId: existingBotId,
+      title,
+      meetingUrl: String(event.meeting_url),
+      botJoinAt: joinAt,
+      metadata: {
+        source: "recall_calendar_v2",
+        recall_calendar_event_id: event.id,
+        recall_calendar_id: event.calendar_id,
+      },
+    });
+    return { action: "skipped", reason: "Bot already scheduled — transcript pipeline verified" };
   }
 
   // Drop Recall Calendar bots (often missing transcript webhooks) before re-creating via Notetaker.
@@ -160,7 +172,6 @@ export async function processRecallCalendarEvent(
     botJoinAt: joinAt,
     title,
     joinOffsetMinutes: Math.round(BOT_JOIN_OFFSET_MS / 60_000),
-    preferScheduledJoin: true,
     metadata: {
       source: "recall_calendar_v2",
       recall_calendar_event_id: event.id,
@@ -302,6 +313,8 @@ export async function syncRecallCalendarEvents(args: {
   eventIds?: string[];
   /** Sync now: reserve bots for every upcoming schedulable meeting (same path as Smart schedule). */
   scheduleAll?: boolean;
+  /** When true with scheduleAll, also verify transcript pipeline on bots already in app state. */
+  verifyExistingBots?: boolean;
   /** Cap how many *new* bots are created in this run (existing bots can still be refreshed). */
   maxNewBots?: number;
 }): Promise<RecallCalendarSyncResult> {
@@ -356,7 +369,7 @@ export async function syncRecallCalendarEvents(args: {
 
   const scheduleBots = Boolean(args.eventIds?.length) || Boolean(args.scheduleAll);
 
-  if (args.scheduleAll) {
+  if (args.scheduleAll && !args.verifyExistingBots) {
     relevantEvents = relevantEvents.filter((event) => !recallEventScheduledInApp(event, scheduledRows));
   }
 
