@@ -159,10 +159,7 @@ export async function processRecallCalendarEvent(
   }
   const priorBotIds = [
     ...new Set(
-      [
-        existingBotId,
-        ...(event.bots?.map((b) => String(b.bot_id || "").trim()).filter(Boolean) ?? []),
-      ].filter((id): id is string => Boolean(id?.trim())),
+      [existingBotId, event.bots?.[0]?.bot_id].filter((id): id is string => Boolean(id?.trim())),
     ),
   ];
   for (const priorId of priorBotIds) {

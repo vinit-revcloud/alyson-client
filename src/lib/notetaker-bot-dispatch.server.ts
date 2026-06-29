@@ -5,7 +5,6 @@ import {
 } from "@/lib/recall/recall-bot-config.server";
 import { recallFetch } from "@/lib/recall/recall-client.server";
 import { registerScheduledBotInSessionsCatalog } from "@/lib/notetaker-scheduled-catalog.server";
-import { isDeferredBotJoin } from "@/lib/notetaker-bot-join-timing.server";
 
 export type BotDispatchSource = "notetaker_managed" | "direct_recall_fallback";
 
@@ -105,8 +104,7 @@ export async function linkBotToNotetakerSession(args: BotSessionLinkArgs): Promi
     console.warn(`[notetaker-dispatch] register-bot unreachable for ${botId}:`, e);
   }
 
-  // Waking the session can make Notetaker join the Meet immediately — skip for future join_at.
-  if (!registered && !isDeferredBotJoin(args.botJoinAt)) {
+  if (!registered) {
     try {
       const res = await notetakerGet(`/api/session/${encodeURIComponent(botId)}`);
       if (!res.ok) {
@@ -230,8 +228,7 @@ export async function cancelScheduledRecallBot(botId: string): Promise<void> {
 
 /**
  * Create a Recall bot with live transcript pipeline.
- * Future Smart-schedule joins use Recall `join_at` first (Notetaker create-bot can join immediately).
- * Near-term / in-call joins prefer Notetaker for live transcripts.
+ * Always prefers Notetaker `/api/create-bot` (including future join_at) so sessions + webhooks register correctly.
  */
 export async function dispatchBotWithLiveTranscripts(args: {
   meetingUrl: string;
@@ -239,7 +236,7 @@ export async function dispatchBotWithLiveTranscripts(args: {
   title: string;
   metadata: Record<string, unknown>;
   joinOffsetMinutes?: number;
-  /** @deprecated Ignored — deferred joins always use Recall join_at first. */
+  /** @deprecated Ignored — Notetaker is always tried first for scheduled and immediate joins. */
   preferScheduledJoin?: boolean;
 }): Promise<{ botId: string; creationSource: BotDispatchSource }> {
   const botName = process.env.BOT_NAME?.trim() || "Alyson Notetaker";
@@ -287,35 +284,15 @@ export async function dispatchBotWithLiveTranscripts(args: {
     return { botId, creationSource: "notetaker_managed" as const };
   };
 
-  const deferredJoin = isDeferredBotJoin(args.botJoinAt);
-
-  const tryRecallThenNotetaker = async () => {
+  try {
+    return await notetakerDispatch();
+  } catch (notetakerErr) {
     try {
       return await recallDispatch();
     } catch (recallErr) {
-      try {
-        return await notetakerDispatch();
-      } catch (notetakerErr) {
-        const rc = recallErr instanceof Error ? recallErr.message : String(recallErr);
-        const nt = notetakerErr instanceof Error ? notetakerErr.message : String(notetakerErr);
-        throw new Error(`Recall: ${rc}; Notetaker fallback: ${nt}`);
-      }
+      const nt = notetakerErr instanceof Error ? notetakerErr.message : String(notetakerErr);
+      const rc = recallErr instanceof Error ? recallErr.message : String(recallErr);
+      throw new Error(`Notetaker: ${nt}; Recall fallback: ${rc}`);
     }
-  };
-
-  const tryNotetakerThenRecall = async () => {
-    try {
-      return await notetakerDispatch();
-    } catch (notetakerErr) {
-      try {
-        return await recallDispatch();
-      } catch (recallErr) {
-        const nt = notetakerErr instanceof Error ? notetakerErr.message : String(notetakerErr);
-        const rc = recallErr instanceof Error ? recallErr.message : String(recallErr);
-        throw new Error(`Notetaker: ${nt}; Recall fallback: ${rc}`);
-      }
-    }
-  };
-
-  return deferredJoin ? tryRecallThenNotetaker() : tryNotetakerThenRecall();
+  }
 }

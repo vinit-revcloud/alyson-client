@@ -4,17 +4,6 @@ import type { CalendarMeetingRef } from "@/lib/notetaker-bot-join-report.types";
 /** Bot is scheduled ~2 min before start; never joins more than ~20 min early. */
 export const MAX_PLAUSIBLE_EARLY_SECONDS = 20 * 60;
 export const LATE_GRACE_SECONDS = 2 * 60;
-/** join_at must be at least this far ahead to count as deferred (Smart schedule — not join-now). */
-export const DEFERRED_BOT_JOIN_MIN_AHEAD_MS = 90 * 1000;
-
-/** True when Recall should hold the bot until join_at (future calendar reservation). */
-export function isDeferredBotJoin(
-  botJoinAt: string,
-  minAheadMs: number = DEFERRED_BOT_JOIN_MIN_AHEAD_MS,
-): boolean {
-  const joinMs = new Date(botJoinAt).getTime();
-  return Number.isFinite(joinMs) && joinMs > Date.now() + minAheadMs;
-}
 
 function secondsBetween(startIso: string, endIso: string): number | null {
   const a = Date.parse(startIso);
