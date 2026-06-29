@@ -42,6 +42,7 @@ import { getBotJoinReport } from "@/lib/notetaker-bot-join-functions";
 import { downloadBotJoinReportPdf } from "@/lib/notetaker-bot-join-report-pdf";
 import {
   DEFAULT_BOT_JOIN_REPORT_EMAIL,
+  BOT_JOIN_REPORT_24H_WINDOW_HOURS,
   type BotJoinReport,
   type BotJoinReportRow,
 } from "@/lib/notetaker-bot-join-report.types";
@@ -57,6 +58,13 @@ const PERIOD_DAYS = [7, 15, 30, 60] as const;
 type PeriodDays = (typeof PERIOD_DAYS)[number];
 const DEFAULT_PERIOD: PeriodDays = 30;
 
+type AppliedFilter = {
+  start: string;
+  end: string;
+  periodDays: number;
+  windowHours?: number;
+};
+
 function isoDay(d: Date) {
   return d.toISOString().slice(0, 10);
 }
@@ -68,8 +76,23 @@ function rangeForLastDays(days: number) {
   return { start: isoDay(startDate), end };
 }
 
-function defaultApplied() {
+function rangeForLast24Hours(): AppliedFilter {
+  const end = new Date();
+  const start = new Date(end.getTime() - BOT_JOIN_REPORT_24H_WINDOW_HOURS * 3600_000);
+  return {
+    start: isoDay(start),
+    end: isoDay(end),
+    periodDays: 0,
+    windowHours: BOT_JOIN_REPORT_24H_WINDOW_HOURS,
+  };
+}
+
+function defaultApplied(): AppliedFilter {
   return { ...rangeForLastDays(DEFAULT_PERIOD), periodDays: DEFAULT_PERIOD };
+}
+
+function isLast24HoursApplied(applied: AppliedFilter) {
+  return applied.windowHours === BOT_JOIN_REPORT_24H_WINDOW_HOURS;
 }
 
 function formatTs(iso: string | null | undefined) {
@@ -130,7 +153,7 @@ function BotJoinReportPage() {
   const [applied, setApplied] = useState(() => boot?.applied ?? defaultApplied());
 
   const q = useQuery({
-    queryKey: ["bot-join-report", applied.start, applied.end, calendarEmail],
+    queryKey: ["bot-join-report", applied.start, applied.end, calendarEmail, applied.windowHours ?? null],
     queryFn: () =>
       getBotJoinReport({
         data: {
@@ -138,15 +161,21 @@ function BotJoinReportPage() {
           end: applied.end,
           calendarEmail,
           forceRefresh: forceRefreshRef.current,
+          windowHours: applied.windowHours,
         },
       }),
-    staleTime: 30 * 60_000,
+    staleTime: applied.windowHours ? 5 * 60_000 : 30 * 60_000,
     gcTime: 60 * 60_000,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     placeholderData: keepPreviousData,
     initialData: () => {
-      const cached = getCachedBotJoinReport(calendarEmail, applied.start, applied.end);
+      const cached = getCachedBotJoinReport(
+        calendarEmail,
+        applied.start,
+        applied.end,
+        applied.windowHours,
+      );
       return cached ? { report: cached } : undefined;
     },
     retry: 1,
@@ -170,12 +199,31 @@ function BotJoinReportPage() {
 
   const applyPeriod = (days: PeriodDays) => {
     const range = rangeForLastDays(days);
-    const next = { ...range, periodDays: days };
+    const next: AppliedFilter = { ...range, periodDays: days };
     const cached = getCachedBotJoinReport(calendarEmail, next.start, next.end);
     if (cached) {
-      queryClient.setQueryData(["bot-join-report", next.start, next.end, calendarEmail], {
-        report: cached,
-      });
+      queryClient.setQueryData(
+        ["bot-join-report", next.start, next.end, calendarEmail, null],
+        { report: cached },
+      );
+      saveBotJoinReportSession({ applied: next, calendarEmail, report: cached });
+    }
+    setApplied(next);
+  };
+
+  const applyLast24Hours = () => {
+    const next = rangeForLast24Hours();
+    const cached = getCachedBotJoinReport(
+      calendarEmail,
+      next.start,
+      next.end,
+      next.windowHours,
+    );
+    if (cached) {
+      queryClient.setQueryData(
+        ["bot-join-report", next.start, next.end, calendarEmail, next.windowHours ?? null],
+        { report: cached },
+      );
       saveBotJoinReportSession({ applied: next, calendarEmail, report: cached });
     }
     setApplied(next);
@@ -191,9 +239,16 @@ function BotJoinReportPage() {
   const c = report?.critical;
 
   const periodLabel = useMemo(() => {
+    if (isLast24HoursApplied(applied)) {
+      const windowStart = report?.range.windowStart;
+      if (windowStart) {
+        return `Last 24 hours (since ${formatTs(windowStart)})`;
+      }
+      return "Last 24 hours (rolling)";
+    }
     if (applied.start === applied.end) return applied.start;
     return `${applied.start} → ${applied.end}`;
-  }, [applied.start, applied.end]);
+  }, [applied, report?.range.windowStart]);
 
   const chartDaily = useMemo(() => {
     if (!report?.daily?.length) return [];
@@ -261,15 +316,28 @@ function BotJoinReportPage() {
             <div className="space-y-1">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Period</span>
               <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={applyLast24Hours}
+                  disabled={coldLoad && isLast24HoursApplied(applied)}
+                  className={
+                    "h-7 px-3 rounded-full text-[11.5px] font-medium border transition-colors " +
+                    (isLast24HoursApplied(applied)
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-paper border-border text-muted-foreground hover:text-foreground")
+                  }
+                >
+                  Last 24 hours
+                </button>
                 {PERIOD_DAYS.map((d) => (
                   <button
                     key={d}
                     type="button"
                     onClick={() => applyPeriod(d)}
-                    disabled={coldLoad && applied.periodDays === d}
+                    disabled={coldLoad && applied.periodDays === d && !applied.windowHours}
                     className={
                       "h-7 px-3 rounded-full text-[11.5px] font-medium border transition-colors " +
-                      (applied.periodDays === d
+                      (applied.periodDays === d && !applied.windowHours
                         ? "bg-foreground text-background border-foreground"
                         : "bg-paper border-border text-muted-foreground hover:text-foreground")
                     }

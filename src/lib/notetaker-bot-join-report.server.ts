@@ -44,8 +44,8 @@ type ScheduledState = { scheduled: UnifiedScheduledStateEntry[] };
 const reportCache = new Map<string, { at: number; report: BotJoinReport }>();
 const REPORT_CACHE_TTL_MS = 10 * 60_000;
 
-function reportCacheKey(calendarEmail: string, start: string, end: string) {
-  return `${calendarEmail}|${start}|${end}`;
+function reportCacheKey(calendarEmail: string, start: string, end: string, windowHours?: number) {
+  return `${calendarEmail}|${start}|${end}|${windowHours ?? "days"}`;
 }
 
 function env(name: string): string {
@@ -65,12 +65,6 @@ function dwdConfigured(): boolean {
   );
 }
 
-function isoRangeBounds(start: string, end: string) {
-  return {
-    timeMin: `${start}T00:00:00.000Z`,
-    timeMax: `${end}T23:59:59.999Z`,
-  };
-}
 
 function eventDay(iso: string): string | null {
   const ms = Date.parse(iso);
@@ -81,6 +75,29 @@ function eventDay(iso: string): string | null {
 function inRangeDay(day: string | null, start: string, end: string): boolean {
   if (!day) return false;
   return day >= start && day <= end;
+}
+
+function rollingWindowBounds(windowHours: number): { windowStart: string; windowEnd: string; floorMs: number } {
+  const windowEnd = new Date().toISOString();
+  const floorMs = Date.now() - windowHours * 3600_000;
+  return { windowStart: new Date(floorMs).toISOString(), windowEnd, floorMs };
+}
+
+function inReportWindow(
+  iso: string | null | undefined,
+  start: string,
+  end: string,
+  windowHours?: number,
+  floorMs?: number,
+): boolean {
+  if (!iso) return false;
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return false;
+  if (windowHours) {
+    const floor = floorMs ?? Date.now() - windowHours * 3600_000;
+    return ms >= floor && ms <= Date.now();
+  }
+  return inRangeDay(eventDay(iso), start, end);
 }
 
 function normalizeStartIso(iso: string): string {
@@ -289,6 +306,8 @@ async function collectBotCandidates(
   calendarEmail: string,
   start: string,
   end: string,
+  windowHours?: number,
+  floorMs?: number,
 ): Promise<{ candidates: BotCandidate[]; diagnostics: BotJoinReportDiagnostics }> {
   const normalizedEmail = calendarEmail.trim().toLowerCase();
   const allowedEmails = new Set([normalizedEmail]);
@@ -332,7 +351,7 @@ async function collectBotCandidates(
       const botId = String(s.botId || "").trim();
       if (!botId) continue;
       const anchor = String(s.createdAt || "").trim();
-      if (anchor && !inRangeDay(eventDay(anchor), start, end)) continue;
+      if (anchor && !inReportWindow(anchor, start, end, windowHours, floorMs)) continue;
       addCandidate(
         {
           botId,
@@ -359,7 +378,7 @@ async function collectBotCandidates(
       if (!botId) continue;
       const row = stateByBot.get(botId);
       const anchor = row?.startTime || row?.botJoinAt || row?.scheduledAt || s.createdAt;
-      if (anchor && !inRangeDay(eventDay(anchor), start, end)) continue;
+      if (anchor && !inReportWindow(anchor, start, end, windowHours, floorMs)) continue;
 
       const rowEmail = String(row?.calendarUserEmail || "").trim().toLowerCase();
       const matchesEmail = rowEmail
@@ -400,7 +419,7 @@ async function collectBotCandidates(
           updatedAtGte: new Date(updatedAtGte).toISOString(),
         });
         for (const event of events) {
-          if (!inRangeDay(eventDay(event.start_time), start, end)) continue;
+          if (!inReportWindow(event.start_time, start, end, windowHours, floorMs)) continue;
           const botId = String(event.bots?.[0]?.bot_id || "").trim();
           if (!botId) continue;
           const meetingUrl = String(event.meeting_url || "").trim() || null;
@@ -432,7 +451,8 @@ async function collectBotCandidates(
       const anchor = String(doc.finalizedAt || doc.cronFinalizedAt || "").trim();
       const prefixDay = String(doc.prefix || "").split("_").slice(-2, -1)[0];
       const day = eventDay(anchor) || (/^\d{4}-\d{2}-\d{2}$/.test(prefixDay) ? prefixDay : null);
-      if (!inRangeDay(day, start, end)) continue;
+      const anchorIso = anchor || (day ? `${day}T12:00:00.000Z` : null);
+      if (!inReportWindow(anchorIso, start, end, windowHours, floorMs)) continue;
 
       addCandidate(
         {
@@ -476,14 +496,19 @@ async function listEligibleCalendarMeetings(
   calendarEmail: string,
   start: string,
   end: string,
+  windowHours?: number,
+  floorMs?: number,
 ): Promise<CalendarMeetingRef[]> {
-  const { timeMin, timeMax } = isoRangeBounds(start, end);
+  const timeMin = windowHours
+    ? new Date(floorMs ?? Date.now() - windowHours * 3600_000).toISOString()
+    : `${start}T00:00:00.000Z`;
+  const timeMax = windowHours ? new Date().toISOString() : `${end}T23:59:59.999Z`;
   const events = await listCalendarEventsForUser(calendarEmail, timeMin, timeMax);
   const out: CalendarMeetingRef[] = [];
 
   for (const event of events) {
     const startTime = String(event?.start?.dateTime || "");
-    if (!inRangeDay(eventDay(startTime), start, end)) continue;
+    if (!inReportWindow(startTime, start, end, windowHours, floorMs)) continue;
     const meetingUrl = getMeetingUrl(event);
     if (historicalSkipReason(event, meetingUrl)) continue;
     if (!meetingUrl) continue;
@@ -527,9 +552,12 @@ export async function buildBotJoinReport(args: {
   end: string;
   calendarEmail?: string;
   forceRefresh?: boolean;
+  windowHours?: number;
 }): Promise<BotJoinReport> {
   const calendarEmail = (args.calendarEmail || DEFAULT_BOT_JOIN_REPORT_EMAIL).trim().toLowerCase();
-  const cacheKey = reportCacheKey(calendarEmail, args.start, args.end);
+  const windowHours = args.windowHours;
+  const rolling = windowHours ? rollingWindowBounds(windowHours) : null;
+  const cacheKey = reportCacheKey(calendarEmail, args.start, args.end, windowHours);
   if (!args.forceRefresh) {
     const hit = reportCache.get(cacheKey);
     if (hit && Date.now() - hit.at < REPORT_CACHE_TTL_MS) {
@@ -537,7 +565,13 @@ export async function buildBotJoinReport(args: {
     }
   }
 
-  const { candidates, diagnostics } = await collectBotCandidates(calendarEmail, args.start, args.end);
+  const { candidates, diagnostics } = await collectBotCandidates(
+    calendarEmail,
+    args.start,
+    args.end,
+    windowHours,
+    rolling?.floorMs,
+  );
 
   let calendarAvailable = false;
   let calendarError: string | undefined;
@@ -546,7 +580,13 @@ export async function buildBotJoinReport(args: {
   if (dwdConfigured()) {
     try {
       env("GOOGLE_WORKSPACE_ADMIN_SUBJECT_EMAIL");
-      eligibleMeetings = await listEligibleCalendarMeetings(calendarEmail, args.start, args.end);
+      eligibleMeetings = await listEligibleCalendarMeetings(
+        calendarEmail,
+        args.start,
+        args.end,
+        windowHours,
+        rolling?.floorMs,
+      );
       calendarAvailable = true;
     } catch (e) {
       calendarError = e instanceof Error ? e.message : String(e);
@@ -556,8 +596,8 @@ export async function buildBotJoinReport(args: {
   }
 
   const recallOk = recallConfigured();
-  const joinAtAfter = `${args.start}T00:00:00.000Z`;
-  const joinAtBefore = `${args.end}T23:59:59.999Z`;
+  const joinAtAfter = rolling?.windowStart ?? `${args.start}T00:00:00.000Z`;
+  const joinAtBefore = rolling?.windowEnd ?? `${args.end}T23:59:59.999Z`;
   const lifecycleResult = recallOk
     ? await fetchRecallBotLifecycles(candidates.map((c) => c.botId), {
         joinAtAfter,
@@ -716,7 +756,17 @@ export async function buildBotJoinReport(args: {
   });
 
   const report: BotJoinReport = {
-    range: { start: args.start, end: args.end },
+    range: {
+      start: args.start,
+      end: args.end,
+      ...(windowHours
+        ? {
+            windowHours,
+            windowStart: rolling!.windowStart,
+            windowEnd: rolling!.windowEnd,
+          }
+        : {}),
+    },
     calendarEmail,
     generatedAt: new Date().toISOString(),
     recallConfigured: recallOk,

@@ -5,14 +5,14 @@ const REPORT_TTL_MS = 30 * 60_000;
 
 export type BotJoinReportSessionState = {
   version: 1;
-  applied: { start: string; end: string; periodDays: number };
+  applied: { start: string; end: string; periodDays: number; windowHours?: number };
   calendarEmail: string;
   reports: Record<string, { report: BotJoinReport; cachedAt: string }>;
   savedAt: string;
 };
 
-function reportKey(calendarEmail: string, start: string, end: string) {
-  return `${calendarEmail}|${start}:${end}`;
+function reportKey(calendarEmail: string, start: string, end: string, windowHours?: number) {
+  return `${calendarEmail}|${start}:${end}|${windowHours ?? "days"}`;
 }
 
 export function loadBotJoinReportSession(): BotJoinReportSessionState | null {
@@ -32,10 +32,11 @@ export function getCachedBotJoinReport(
   calendarEmail: string,
   start: string,
   end: string,
+  windowHours?: number,
 ): BotJoinReport | null {
   const session = loadBotJoinReportSession();
   if (!session) return null;
-  const entry = session.reports[reportKey(calendarEmail, start, end)];
+  const entry = session.reports[reportKey(calendarEmail, start, end, windowHours)];
   if (!entry?.report) return null;
   if (Date.now() - Date.parse(entry.cachedAt) > REPORT_TTL_MS) return null;
   return entry.report;
@@ -51,7 +52,7 @@ export function saveBotJoinReportSession(args: {
     const prev = loadBotJoinReportSession();
     const reports = { ...(prev?.reports ?? {}) };
     if (args.report) {
-      reports[reportKey(args.calendarEmail, args.applied.start, args.applied.end)] = {
+      reports[reportKey(args.calendarEmail, args.applied.start, args.applied.end, args.applied.windowHours)] = {
         report: args.report,
         cachedAt: new Date().toISOString(),
       };

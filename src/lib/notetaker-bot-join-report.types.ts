@@ -1,5 +1,17 @@
 export const DEFAULT_BOT_JOIN_REPORT_EMAIL = "alysonclient@cintara.ai";
 
+/** Rolling window preset for the bot join report UI. */
+export const BOT_JOIN_REPORT_24H_WINDOW_HOURS = 24;
+
+export type BotJoinReportRange = {
+  start: string;
+  end: string;
+  /** When set, metrics use a rolling window ending now (not full calendar days). */
+  windowHours?: number;
+  windowStart?: string;
+  windowEnd?: string;
+};
+
 export type CalendarMeetingRef = {
   googleEventId: string;
   title: string;
@@ -84,7 +96,7 @@ export type BotJoinReportDiagnostics = {
 };
 
 export type BotJoinReport = {
-  range: { start: string; end: string };
+  range: BotJoinReportRange;
   calendarEmail: string;
   generatedAt: string;
   recallConfigured: boolean;

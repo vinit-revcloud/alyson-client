@@ -3,6 +3,15 @@ import { autoTable } from "jspdf-autotable";
 import type { BotJoinReport } from "@/lib/notetaker-bot-join-report.types";
 
 function periodLabel(report: BotJoinReport) {
+  if (report.range.windowHours) {
+    const start = report.range.windowStart
+      ? new Date(report.range.windowStart).toLocaleString()
+      : report.range.start;
+    const end = report.range.windowEnd
+      ? new Date(report.range.windowEnd).toLocaleString()
+      : report.range.end;
+    return `Last ${report.range.windowHours}h (${start} → ${end})`;
+  }
   return `${report.range.start} → ${report.range.end}`;
 }
 
