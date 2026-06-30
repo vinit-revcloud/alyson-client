@@ -3,15 +3,7 @@ import { z } from "zod";
 import { format, parseISO, startOfMonth, startOfWeek, subDays } from "date-fns";
 import { clampRange, defaultDetailRange, defaultListRange } from "@/lib/time-dashboard-range";
 import { formatTimeDoctorAuthError } from "@/lib/time-doctor-auth-errors";
-import {
-  canConfigureTimeDoctorRefresh,
-  getValidAccessToken,
-  refreshTimeDoctorAccessToken,
-  timeDoctorOAuthEnv,
-  TimeDoctorAuthError,
-} from "@/lib/time-doctor-token-manager.server";
 
-export { canConfigureTimeDoctorRefresh };
 export { isTimeDoctorReauthError, TIME_DOCTOR_REAUTH_MESSAGE } from "@/lib/time-doctor-auth-errors";
 
 /**
@@ -915,15 +907,19 @@ function groupBy<T extends { userId: string }>(items: T[]): Map<string, T[]> {
   return m;
 }
 
-function timeDoctorEnv() {
-  return timeDoctorOAuthEnv();
-}
-
 async function upstreamFetch<T>(
   path: string,
   init?: RequestInit & { params?: Record<string, string | number | undefined>; auth?: "auto_refresh" | "access_only" },
 ): Promise<T> {
-  const env = timeDoctorEnv();
+  const {
+    timeDoctorOAuthEnv,
+    getValidAccessToken,
+    refreshTimeDoctorAccessToken,
+    canConfigureTimeDoctorRefresh,
+    TimeDoctorAuthError,
+  } = await import("@/lib/time-doctor-token-manager.server");
+
+  const env = timeDoctorOAuthEnv();
 
   const url = new URL(path.replace(/^\//, ""), env.API_BASE_URL.replace(/\/+$/, "") + "/");
   if (init?.params) {
