@@ -2,8 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { assertDailyReportCronAuth } from "@/lib/resend-mail.server";
 import {
   recallCalendarSyncCronEnabled,
+  runRecallCalendarAutoSyncCron,
 } from "@/lib/recall/recall-calendar-sync-cron.server";
-import { runUnifiedMeetingsBackgroundMaintenance } from "@/lib/unified-meetings-background.server";
+import { activateDueScheduledBotSessions } from "@/lib/notetaker-scheduled-bot-activation.server";
 
 export const Route = createFileRoute("/api/cron/recall-calendar-sync")({
   server: {
@@ -22,10 +23,19 @@ async function runCron(request: Request) {
     return Response.json({ ok: true, skipped: true, reason: "Recall calendar sync cron disabled" });
   }
 
+  // Heartbeat (every ~5 min from .github/workflows/notetaker-heartbeat.yml). Kept light on purpose:
+  // the company-wide DWD scan + transcript sweep live in /api/cron/notetaker-transcripts.
   try {
-    const result = await runUnifiedMeetingsBackgroundMaintenance();
+    const calendars = await runRecallCalendarAutoSyncCron();
+    let activation: Awaited<ReturnType<typeof activateDueScheduledBotSessions>> | { error: string };
+    try {
+      activation = await activateDueScheduledBotSessions();
+    } catch (e) {
+      activation = { error: e instanceof Error ? e.message : String(e) };
+    }
+    const result = { calendars, activation };
     console.info("[cron/recall-calendar-sync]", JSON.stringify(result));
-    return Response.json({ ok: true, ...result });
+    return Response.json({ ok: calendars.ok, ...result });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Recall calendar sync cron failed";
     console.error("[cron/recall-calendar-sync]", message);

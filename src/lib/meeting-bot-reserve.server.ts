@@ -43,6 +43,15 @@ function reservationAgeMs(row: UnifiedScheduledStateEntry): number {
   return Number.isFinite(at) ? Date.now() - at : RESERVATION_STALE_MS + 1;
 }
 
+/**
+ * True while a "reserving:" placeholder is still plausibly in flight. A placeholder older than
+ * RESERVATION_STALE_MS means the dispatching function died (e.g. serverless timeout) before it
+ * could commit or abort — callers must treat that meeting as unscheduled so it gets retried.
+ */
+export function isFreshReservation(row: Pick<UnifiedScheduledStateEntry, "recallBotId" | "scheduledAt" | "lastStatusAt">): boolean {
+  return isReservingBotId(row.recallBotId) && reservationAgeMs(row as UnifiedScheduledStateEntry) <= RESERVATION_STALE_MS;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

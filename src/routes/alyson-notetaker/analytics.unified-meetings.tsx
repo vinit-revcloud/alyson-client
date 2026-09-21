@@ -124,8 +124,10 @@ export function UnifiedMeetingsPage() {
         webhookUrl: string;
         oauthRedirectUri?: string;
         connected: RecallCalendarConnection[];
+        disconnected?: Array<{ email: string; recallCalendarId: string }>;
         total: number;
         allowlist?: string[];
+        connectDomains?: string[] | "*";
       };
     },
     staleTime: 30_000,
@@ -246,7 +248,12 @@ export function UnifiedMeetingsPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("calendarConnected") === "1") {
-      toast.success(`Google Calendar connected — ${params.get("scheduled") || 0} bots scheduled`);
+      const n = Number(params.get("scheduled") || 0);
+      toast.success(
+        n > 0
+          ? `Google Calendar connected — Alyson attached to ${n} upcoming meeting${n === 1 ? "" : "s"}`
+          : "Google Calendar connected — Alyson will auto-join every meeting with a video link",
+      );
       window.history.replaceState({}, "", window.location.pathname);
     }
     const err = params.get("calendarError");
@@ -371,7 +378,9 @@ export function UnifiedMeetingsPage() {
           webhookUrl={calendarQ.data?.webhookUrl}
           oauthRedirectUri={calendarQ.data?.oauthRedirectUri}
           allowlist={calendarQ.data?.allowlist}
+          connectDomains={calendarQ.data?.connectDomains}
           connected={calendarQ.data?.connected ?? []}
+          disconnected={calendarQ.data?.disconnected ?? []}
           bulkScheduledByCalendar={bulkScheduledByCalendar}
           onSync={(args) => calendarActionM.mutate({ action: "sync", ...args })}
           onDisconnect={(calendarId) => calendarActionM.mutate({ action: "disconnect", calendarId })}
@@ -546,7 +555,9 @@ function RecallCalendarPanel({
   webhookUrl,
   oauthRedirectUri,
   allowlist,
+  connectDomains,
   connected,
+  disconnected,
   bulkScheduledByCalendar,
   onSync,
   onDisconnect,
@@ -557,38 +568,33 @@ function RecallCalendarPanel({
   webhookUrl?: string;
   oauthRedirectUri?: string;
   allowlist?: string[];
+  connectDomains?: string[] | "*";
   connected: RecallCalendarConnection[];
+  disconnected: Array<{ email: string; recallCalendarId: string }>;
   bulkScheduledByCalendar: Record<string, string[]>;
   onSync: (args: { calendarId: string; eventIds?: string[]; scheduleAll?: boolean; maxNewBots?: number }) => void;
   onDisconnect: (calendarId: string) => void;
   busy: boolean;
 }) {
   const active = connected.filter((c) => c.status === "connected");
-  const allowedEmails =
-    allowlist?.length
-      ? allowlist
-      : [
-          "alysonclient@cintara.ai",
-          "mohita@cintara.ai",
-          "arman@cintara.ai",
-          "aditya@cintara.ai",
-          "notetaker@cintara.ai",
-          "thirumalai@cintara.ai",
-          "vinit@cintara.ai",
-        ];
+  const whoCanConnect =
+    connectDomains === "*"
+      ? "anyone"
+      : connectDomains?.length
+        ? `anyone with a ${connectDomains.map((d) => `@${d}`).join(" / ")} account`
+        : (allowlist ?? []).join(", ") || "allowlisted accounts";
 
   return (
     <div className="surface-card p-4 space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Recall Calendar V2</div>
-          <h3 className="font-display text-lg mt-0.5">Auto-join via calendar webhooks</h3>
+          <h3 className="font-display text-lg mt-0.5">Connect your calendar — Alyson joins automatically</h3>
           <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-            Auto-schedule for{" "}
-            <span className="text-foreground font-medium">{allowedEmails.join(", ")}</span>{" "}
-            runs via Google Workspace (DWD) + cron —{" "}
-            <span className="text-foreground font-medium">Connect is optional</span> (faster webhook
-            path only). Bots use timed 48h retention and join ~2 min before start.
+            <span className="text-foreground font-medium">{whoCanConnect}</span> can connect a Google
+            Calendar. After connecting, Alyson Notetaker is attached to every meeting with a video link
+            (new, moved and recurring meetings included) and joins ~2 min before start. Declined meetings
+            are skipped. Hosts may still need to admit “Alyson Notetaker” from the Meet waiting room.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -624,6 +630,29 @@ function RecallCalendarPanel({
       {!loading && active.length === 0 && (
         <div className="text-sm text-muted-foreground">No calendar connected yet.</div>
       )}
+
+      {disconnected.map((d) => (
+        <div
+          key={d.recallCalendarId}
+          className="rounded-md border border-destructive/40 px-3 py-2 text-sm flex flex-wrap items-center justify-between gap-2"
+        >
+          <span>
+            <span className="font-medium">{d.email}</span>{" "}
+            <span className="text-muted-foreground">
+              — Google access expired. Alyson is not joining these meetings until you reconnect.
+            </span>
+          </span>
+          <Link
+            to="/api/recall/calendar/connect"
+            search={{ returnTo: "/alyson-notetaker/unified-meetings" }}
+            reloadDocument
+            className="h-7 px-2.5 rounded-md border border-border bg-background text-[11px] font-medium inline-flex items-center gap-1"
+          >
+            <Link2 className="h-3 w-3" />
+            Reconnect
+          </Link>
+        </div>
+      ))}
 
       {active.map((c) => (
         <RecallCalendarConnectionRow
@@ -704,7 +733,7 @@ function RecallCalendarConnectionRow({
               {upcomingCount} upcoming · {scheduledInAppCount} scheduled in app · {serverPending} pending
               {needsAutoSync && RECALL_CALENDAR_AUTO_SYNC ? (
                 <span className="text-foreground">
-                  {busy ? " — syncing…" : " — also syncs automatically (cron + calendar webhooks)"}
+                  {busy ? " — syncing…" : " — syncs automatically (calendar webhooks + 5-min heartbeat)"}
                 </span>
               ) : null}
             </div>

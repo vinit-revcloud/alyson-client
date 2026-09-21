@@ -1,7 +1,7 @@
 import {
+  mutateUnifiedScheduledStateInS3,
   readUnifiedScheduledStateFromS3,
   unifiedScheduledStateUsesS3,
-  writeUnifiedScheduledStateToS3,
   type UnifiedScheduledStateEntry,
 } from "@/lib/unified-scheduled-s3.server";
 
@@ -112,29 +112,34 @@ export async function patchUnifiedScheduledByBotId(
   const id = String(botId || "").trim();
   if (!id || !unifiedScheduledStateUsesS3()) return false;
 
-  const state = await readUnifiedScheduledStateFromS3();
-  const idx = state.scheduled.findIndex((row) => row.recallBotId === id);
-  if (idx < 0) return false;
+  // Cheap read first — most bots (manual / ad-hoc) have no unified schedule row.
+  const snapshot = await readUnifiedScheduledStateFromS3();
+  if (!snapshot.scheduled.some((row) => row.recallBotId === id)) return false;
 
-  const prev = state.scheduled[idx]!;
-  const nextStatus = (patch.status ?? prev.status) as UnifiedScheduledLifecycleStatus;
-  const currentStatus = prev.status as UnifiedScheduledLifecycleStatus;
-  if (nextStatus !== currentStatus && !shouldAdvanceStatus(currentStatus, nextStatus)) return false;
+  // ETag-guarded write: webhooks and schedulers run concurrently on the same index.
+  return mutateUnifiedScheduledStateInS3((state) => {
+    const idx = state.scheduled.findIndex((row) => row.recallBotId === id);
+    if (idx < 0) return { state, value: false };
 
-  const now = new Date().toISOString();
-  state.scheduled[idx] = {
-    ...prev,
-    ...patch,
-    status: nextStatus,
-    lastStatusAt: patch.lastStatusAt ?? now,
-    joinedAt: patch.joinedAt ?? (nextStatus === "in_call" ? prev.joinedAt ?? now : prev.joinedAt),
-    endedAt:
-      patch.endedAt ??
-      (TERMINAL.has(nextStatus) ? prev.endedAt ?? now : prev.endedAt),
-  };
+    const prev = state.scheduled[idx]!;
+    const nextStatus = (patch.status ?? prev.status) as UnifiedScheduledLifecycleStatus;
+    const currentStatus = prev.status as UnifiedScheduledLifecycleStatus;
+    if (nextStatus !== currentStatus && !shouldAdvanceStatus(currentStatus, nextStatus)) {
+      return { state, value: false };
+    }
 
-  await writeUnifiedScheduledStateToS3(state);
-  return true;
+    const now = new Date().toISOString();
+    const scheduled = [...state.scheduled];
+    scheduled[idx] = {
+      ...prev,
+      ...patch,
+      status: nextStatus,
+      lastStatusAt: patch.lastStatusAt ?? now,
+      joinedAt: patch.joinedAt ?? (nextStatus === "in_call" ? prev.joinedAt ?? now : prev.joinedAt),
+      endedAt: patch.endedAt ?? (TERMINAL.has(nextStatus) ? prev.endedAt ?? now : prev.endedAt),
+    };
+    return { state: { ...state, scheduled }, value: true };
+  });
 }
 
 /** Sync unified-scheduled S3 row from a live Notetaker session poll / checkpoint. */

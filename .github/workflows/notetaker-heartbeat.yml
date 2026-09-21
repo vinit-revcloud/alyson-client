@@ -1,0 +1,50 @@
+# Keeps Alyson Notetaker auto-join running between Recall calendar webhooks.
+# Vercel Hobby only allows daily crons, so GitHub Actions pings the app instead (free on public repos).
+#
+# Setup (once): repo Settings -> Secrets and variables -> Actions
+#   secret   CRON_SECRET    = same value as CRON_SECRET / DAILY_REPORT_CRON_SECRET /
+#                             NOTETAKER_TRANSCRIPT_CRON_SECRET on Vercel Production
+#   variable ALYSON_APP_URL = https://alyson-client.vercel.app   (optional, this is the default)
+#
+# Note: GitHub pauses scheduled workflows after 60 days without repo activity, and schedules can
+# run a few minutes late. Recall calendar webhooks remain the primary, real-time path.
+name: Notetaker heartbeat
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # connected-calendar sweep + deferred bot activation
+    - cron: "7-59/15 * * * *" # transcripts, DWD allowlist scan, notes email
+  workflow_dispatch:
+
+jobs:
+  calendars:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '*/5 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency: { group: notetaker-heartbeat-calendars, cancel-in-progress: false }
+    env:
+      APP_URL: ${{ vars.ALYSON_APP_URL || 'https://alyson-client.vercel.app' }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Sync connected calendars and activate due bots
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET repo secret is not set"; exit 1; fi
+          code=$(curl -sS -o body.json -w '%{http_code}' --max-time 290 -X POST             -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/recall-calendar-sync")
+          echo "HTTP $code"; head -c 3000 body.json; echo
+          [ "$code" -lt 500 ] && [ "$code" -ne 401 ]
+
+  transcripts:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '7-59/15 * * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    concurrency: { group: notetaker-heartbeat-transcripts, cancel-in-progress: false }
+    env:
+      APP_URL: ${{ vars.ALYSON_APP_URL || 'https://alyson-client.vercel.app' }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Persist transcripts, DWD scan, notes email
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "::error::CRON_SECRET repo secret is not set"; exit 1; fi
+          code=$(curl -sS -o body.json -w '%{http_code}' --max-time 290 -X POST             -H "Authorization: Bearer $CRON_SECRET" "$APP_URL/api/cron/notetaker-transcripts")
+          echo "HTTP $code"; head -c 3000 body.json; echo
+          [ "$code" -lt 500 ] && [ "$code" -ne 401 ]

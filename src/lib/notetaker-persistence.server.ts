@@ -68,6 +68,25 @@ export function notesEmailStaleFallbackMs(): number {
     : 60 * 60_000;
 }
 
+/**
+ * How long after Recall reports the call ended before notes may go out without the 15-min idle wait.
+ * Realtime transcript webhooks finish within seconds of call end; default 2 min is a safety margin.
+ */
+export function notesAfterCallEndGraceMs(): number {
+  const n = Number(process.env.NOTETAKER_NOTES_AFTER_END_MS ?? String(2 * 60_000));
+  return Number.isFinite(n) && n >= 0 ? Math.min(Math.floor(n), 60 * 60_000) : 2 * 60_000;
+}
+
+/** True once Recall's call-ended marker is older than the grace window (meeting is really over). */
+export function isCallEndedGraceElapsed(
+  index: { recallCallEndedAt?: string | null } | null | undefined,
+  options?: { nowMs?: number },
+): boolean {
+  const ended = Date.parse(String(index?.recallCallEndedAt || ""));
+  if (!Number.isFinite(ended)) return false;
+  return (options?.nowMs ?? Date.now()) - ended >= notesAfterCallEndGraceMs();
+}
+
 /** True when Recall/cron end markers are present on bot-index. */
 export function meetingEndMarkersPresent(index: {
   recallCallEndedAt?: string | null;
@@ -576,6 +595,25 @@ export async function writeNotesMdForMeetingPrefix(prefix: string, notesMd: stri
   }
 
   return { notesKey };
+}
+
+/** Stamp Recall's call-ended time on bot-index (from bot status webhooks). No-op without an index. */
+export async function markBotIndexRecallCallEnded(botId: string, endedAtIso: string): Promise<boolean> {
+  const index = await loadBotIndexDoc(botId).catch(() => null);
+  if (!index?.prefix) return false;
+  if (index.recallCallEndedAt && Number.isFinite(Date.parse(String(index.recallCallEndedAt)))) return true;
+  const bucket = requireEnvAlias("AWS_S3_BUCKET", ["S3_BUCKET"]);
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: `alyson-notetaker/bot-index/${encodeURIComponent(botId)}.json`,
+      Body: JSON.stringify({ ...index, recallCallEndedAt: endedAtIso }, null, 2),
+      ContentType: "application/json; charset=utf-8",
+      Tagging: s3CostAllocationTagging("notetaker", "bot-index"),
+      Metadata: buildS3Metadata({ kind: "alyson-notetaker-bot-index", botid: String(botId) }),
+    }),
+  );
+  return true;
 }
 
 /** Record cron stability on bot-index (no transcript rewrite). */

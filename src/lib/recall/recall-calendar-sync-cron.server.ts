@@ -1,7 +1,8 @@
 import { getRecallCalendar } from "@/lib/recall/recall-calendar-v2.server";
-import { isRecallCalendarEmailAllowed } from "@/lib/recall/recall-calendar-allowlist.server";
+import { isCalendarConnectEmailAllowed } from "@/lib/recall/recall-calendar-allowlist.server";
 import {
   getConnectedRecallCalendars,
+  markRecallCalendarDisconnected,
   readRecallCalendarState,
 } from "@/lib/recall/recall-calendar-state-s3.server";
 import {
@@ -59,7 +60,7 @@ export async function autoSyncRecallCalendarIfPending(args: {
   if (!calendarId) {
     return { ran: false, pendingBefore: 0, scheduled: 0, skipped: 0, errors: [], reason: "Missing calendar id" };
   }
-  if (!isRecallCalendarEmailAllowed(ownerEmail)) {
+  if (!isCalendarConnectEmailAllowed(ownerEmail)) {
     return {
       ran: false,
       pendingBefore: 0,
@@ -71,7 +72,19 @@ export async function autoSyncRecallCalendarIfPending(args: {
   }
 
   try {
-    await getRecallCalendar(calendarId);
+    const cal = await getRecallCalendar(calendarId);
+    if (cal.status === "disconnected") {
+      // Google access was revoked or the refresh token expired — surface "Reconnect" in the UI.
+      await markRecallCalendarDisconnected(calendarId).catch(() => {});
+      return {
+        ran: false,
+        pendingBefore: 0,
+        scheduled: 0,
+        skipped: 0,
+        errors: [],
+        reason: "Calendar disconnected on Recall — owner must reconnect Google Calendar",
+      };
+    }
   } catch {
     return {
       ran: false,
@@ -131,11 +144,11 @@ export async function autoSyncRecallCalendarIfPending(args: {
   };
 }
 
-/** Automated Sync now for all allowlisted connected calendars (pending meetings only). */
+/** Automated Sync now for every connected calendar (anyone who clicked Connect Google Calendar). */
 export async function runRecallCalendarAutoSyncCron(): Promise<RecallCalendarSyncCronResult> {
   const state = await readRecallCalendarState();
   const connections = getConnectedRecallCalendars(state).filter((c) =>
-    isRecallCalendarEmailAllowed(c.email),
+    isCalendarConnectEmailAllowed(c.email),
   );
 
   const result: RecallCalendarSyncCronResult = {

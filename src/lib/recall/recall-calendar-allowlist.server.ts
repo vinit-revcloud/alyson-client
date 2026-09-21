@@ -47,3 +47,37 @@ export function assertRecallCalendarEmailAllowed(email: string | null | undefine
 export function recallCalendarAllowlistLabel(): string {
   return getRecallCalendarAllowlist().join(", ");
 }
+
+/**
+ * Email domains whose users may Connect Google Calendar and get Alyson auto-attached to every meeting.
+ * Connecting is the opt-in, so this is broader than the DWD allowlist above.
+ * Env RECALL_CALENDAR_CONNECT_DOMAINS (comma list, or "*" for any account). Defaults to
+ * GOOGLE_WORKSPACE_DOMAIN so outside Gmail accounts can't run up Recall usage.
+ */
+export function calendarConnectAllowedDomains(): string[] | "*" {
+  const raw = process.env.RECALL_CALENDAR_CONNECT_DOMAINS?.trim();
+  if (raw === "*") return "*";
+  const list = (raw || process.env.GOOGLE_WORKSPACE_DOMAIN || "")
+    .split(/[,;\s]+/)
+    .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+    .filter(Boolean);
+  return list;
+}
+
+/** True when this account may connect its calendar (explicit allowlist OR an allowed domain). */
+export function isCalendarConnectEmailAllowed(email: string | null | undefined): boolean {
+  const normalized = normalizeEmail(email || "");
+  if (!normalized || !normalized.includes("@")) return false;
+  if (isRecallCalendarEmailAllowed(normalized)) return true;
+  const domains = calendarConnectAllowedDomains();
+  if (domains === "*") return true;
+  const domain = normalized.split("@")[1] || "";
+  return domains.includes(domain);
+}
+
+export function assertCalendarConnectEmailAllowed(email: string | null | undefined): void {
+  if (isCalendarConnectEmailAllowed(email)) return;
+  const domains = calendarConnectAllowedDomains();
+  const allowed = domains === "*" ? "any account" : domains.length ? domains.map((d) => `@${d}`).join(", ") : recallCalendarAllowlistLabel();
+  throw new Error(`Calendar connect is limited to ${allowed} (got ${email || "unknown account"})`);
+}
