@@ -45,32 +45,34 @@ export async function deleteRecallCalendar(calendarId: string): Promise<void> {
   await recallFetch(`/api/v2/calendars/${encodeURIComponent(calendarId)}/`, { method: "DELETE" });
 }
 
-export async function listRecallCalendarEvents(args: {
+export type RecallCalendarEventFilter = {
   calendarId: string;
+  /** Delta sync (webhooks): only events changed since this time. */
   updatedAtGte?: string;
-  cursor?: string;
-}): Promise<PaginatedCalendarEvents> {
+  /** Window sync (sweeps): events starting in this range, however long ago they were created. */
+  startTimeGte?: string;
+  startTimeLte?: string;
+};
+
+export async function listRecallCalendarEvents(
+  args: RecallCalendarEventFilter & { cursor?: string },
+): Promise<PaginatedCalendarEvents> {
   if (args.cursor) {
     return recallFetch<PaginatedCalendarEvents>(args.cursor);
   }
   const params = new URLSearchParams();
   params.set("calendar_id", args.calendarId);
   if (args.updatedAtGte) params.set("updated_at__gte", args.updatedAtGte);
+  if (args.startTimeGte) params.set("start_time__gte", args.startTimeGte);
+  if (args.startTimeLte) params.set("start_time__lte", args.startTimeLte);
   return recallFetch<PaginatedCalendarEvents>(`/api/v2/calendar-events/?${params.toString()}`);
 }
 
-export async function listAllRecallCalendarEvents(args: {
-  calendarId: string;
-  updatedAtGte?: string;
-}): Promise<RecallCalendarEvent[]> {
+export async function listAllRecallCalendarEvents(args: RecallCalendarEventFilter): Promise<RecallCalendarEvent[]> {
   const out: RecallCalendarEvent[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 50; page++) {
-    const res = await listRecallCalendarEvents({
-      calendarId: args.calendarId,
-      updatedAtGte: args.updatedAtGte,
-      cursor,
-    });
+    const res = await listRecallCalendarEvents({ ...args, cursor });
     out.push(...(res.results ?? []));
     if (!res.next) break;
     cursor = res.next;

@@ -1,26 +1,38 @@
-# External scheduler for Notetaker + calendar auto-schedule
+# Always-on scheduling for Alyson Notetaker
 
-## Completely consistent: list === schedule
+Vercel Hobby only runs daily crons, so a GitHub Actions workflow keeps auto-join running:
+`.github/workflows/notetaker-heartbeat.yml`.
 
-Unified Meetings shows the **next 24 hours** for allowlisted calendars only
-(`alysonclient`, `mohita`, `arman`, `aditya`, …).
+| Schedule | Endpoint | Does |
+|----------|----------|------|
+| every 5 min | `POST /api/cron/recall-calendar-sync` | Sweeps every connected calendar (next 14 days by start time), schedules missing bots, cancels bots for moved/deleted meetings, activates deferred bots |
+| every 15 min | `POST /api/cron/notetaker-transcripts` | DWD allowlist scan, transcript persist/backfill, notes email |
 
-Every Meet-link meeting in that list is auto-Scheduled via Google Workspace **DWD**
-(no Calendar Connect required):
+Both need `Authorization: Bearer <CRON_SECRET>`.
 
-1. Cron (~5 min) — `scheduleAllowlistedUnifiedBots` (same scan as the UI)
-2. Page load — same endpoint
-3. Row **Schedule** — manual retry only
+## One-time setup
 
-One bot per meeting instance (deduped by Meet URL + start).
+1. Merge to `main` (scheduled workflows only run from the default branch).
+2. GitHub → repo Settings → Secrets and variables → Actions → New repository secret
+   `CRON_SECRET` = the same value as `CRON_SECRET` on Vercel Production
+   (`DAILY_REPORT_CRON_SECRET` and `NOTETAKER_TRANSCRIPT_CRON_SECRET` must match it or be unset).
+3. Actions tab → "Notetaker heartbeat" → Run workflow once, and check both jobs are green.
 
-## Optional: Connect Google Calendar
+## Real-time path
 
-Faster webhook path only — not required for coverage.
+Recall calendar webhooks (`calendar.sync_events` → `/api/recall/webhooks/calendar`) schedule bots within
+seconds of a Google Calendar change. The heartbeat is the safety net if a webhook is missed.
 
-## Vercel Hobby: sub-daily crons
+## Who gets a bot
 
-```http
-POST https://alyson-client.vercel.app/api/cron/notetaker-transcripts
-Authorization: Bearer <CRON_SECRET>
-```
+Anyone who clicks **Connect Google Calendar** with an account in `RECALL_CALENDAR_CONNECT_DOMAINS`
+(default `GOOGLE_WORKSPACE_DOMAIN`, `*` for any account). Every meeting with a video link on their
+calendar gets one bot per meeting instance, except meetings they declined.
+
+## Meeting notes right after the meeting
+
+In Recall dashboard → Webhooks, make sure the endpoint
+`https://alyson-client.vercel.app/api/recall/webhooks/calendar` (or the dedicated
+`/api/recall/webhooks/bot`) is subscribed to **bot.call_ended, bot.done, bot.fatal, bot.in_waiting_room,
+bot.in_call_recording, transcript.done** (or "all events"). When a meeting ends, notes are generated and
+emailed within about a minute. If the webhook is missed, the 15-minute heartbeat sends them instead.

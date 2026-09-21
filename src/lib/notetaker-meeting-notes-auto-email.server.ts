@@ -8,6 +8,7 @@ import {
 import { sendMeetingNotesEmail } from "@/lib/meeting-notes-email.server";
 import { ensureMeetingNotesInS3 } from "@/lib/notetaker-auto-persist.server";
 import {
+  isCallEndedGraceElapsed,
   isNotesEmailStaleFallback,
   isNotesReadyUnsentCatchup,
   isTranscriptIdleStable,
@@ -397,8 +398,11 @@ export async function maybeAutoSendMeetingNotesEmail(
   }
 
   const eligibility = meetingEligibleForNotesEmail(index);
+  // Recall confirmed the call ended → the transcript is final; no need to wait 15 min of silence.
   const catchupBypassIdle =
-    eligibility.via === "stale_fallback" || eligibility.via === "notes_ready_catchup";
+    eligibility.via === "stale_fallback" ||
+    eligibility.via === "notes_ready_catchup" ||
+    isCallEndedGraceElapsed(index);
   // Never generate/send from a still-live meeting (partial transcript risk),
   // unless catch-up says this meeting already has notes / is past the short window.
   if (!options?.force && !options?.bypassMeetingEndedGate && !eligibility.eligible) {
@@ -561,12 +565,14 @@ export async function sweepAutoSendMeetingNotesEmails(): Promise<AutoMeetingNote
     const eligibility = meetingEligibleForNotesEmail(d);
     if (!eligibility.eligible) return false;
     if (eligibility.via === "stale_fallback" || eligibility.via === "notes_ready_catchup") return true;
+    if (isCallEndedGraceElapsed(d)) return true;
     return isTranscriptIdleStable(d) || Boolean(d.transcriptUnchangedSince);
   });
 
   // Prefer notes-ready + stale catch-up first so stuck past meetings clear quickly.
   candidates.sort((a, b) => {
     const rank = (d: typeof a) => {
+      if (isCallEndedGraceElapsed(d)) return -1; // just-finished meetings first
       const via = meetingEligibleForNotesEmail(d).via;
       if (via === "notes_ready_catchup") return 0;
       if (via === "stale_fallback") return 1;

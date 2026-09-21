@@ -89,6 +89,7 @@ import { Route as ApiAnalyticsRecallCostRouteImport } from './routes/api/analyti
 import { Route as ApiAnalyticsEmployeeScoringRouteImport } from './routes/api/analytics/employee-scoring'
 import { Route as AlysonNotetakerAnalyticsUnifiedMeetingsRouteImport } from './routes/alyson-notetaker/analytics.unified-meetings'
 import { Route as ApiRecallWebhooksCalendarRouteImport } from './routes/api/recall/webhooks/calendar'
+import { Route as ApiRecallWebhooksBotRouteImport } from './routes/api/recall/webhooks/bot'
 import { Route as ApiRecallCalendarStatusRouteImport } from './routes/api/recall/calendar/status'
 import { Route as ApiRecallCalendarConnectRouteImport } from './routes/api/recall/calendar/connect'
 import { Route as ApiRecallCalendarCallbackRouteImport } from './routes/api/recall/calendar/callback'
@@ -520,6 +521,11 @@ const ApiRecallWebhooksCalendarRoute =
     path: '/api/recall/webhooks/calendar',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiRecallWebhooksBotRoute = ApiRecallWebhooksBotRouteImport.update({
+  id: '/api/recall/webhooks/bot',
+  path: '/api/recall/webhooks/bot',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiRecallCalendarStatusRoute = ApiRecallCalendarStatusRouteImport.update({
   id: '/api/recall/calendar/status',
   path: '/api/recall/calendar/status',
@@ -661,6 +667,7 @@ export interface FileRoutesByFullPath {
   '/api/recall/calendar/callback': typeof ApiRecallCalendarCallbackRoute
   '/api/recall/calendar/connect': typeof ApiRecallCalendarConnectRoute
   '/api/recall/calendar/status': typeof ApiRecallCalendarStatusRoute
+  '/api/recall/webhooks/bot': typeof ApiRecallWebhooksBotRoute
   '/api/recall/webhooks/calendar': typeof ApiRecallWebhooksCalendarRoute
   '/api/analytics/unified-meetings/$meetingId/schedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdScheduleRoute
   '/api/analytics/unified-meetings/$meetingId/unschedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdUnscheduleRoute
@@ -748,6 +755,7 @@ export interface FileRoutesByTo {
   '/api/recall/calendar/callback': typeof ApiRecallCalendarCallbackRoute
   '/api/recall/calendar/connect': typeof ApiRecallCalendarConnectRoute
   '/api/recall/calendar/status': typeof ApiRecallCalendarStatusRoute
+  '/api/recall/webhooks/bot': typeof ApiRecallWebhooksBotRoute
   '/api/recall/webhooks/calendar': typeof ApiRecallWebhooksCalendarRoute
   '/api/analytics/unified-meetings/$meetingId/schedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdScheduleRoute
   '/api/analytics/unified-meetings/$meetingId/unschedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdUnscheduleRoute
@@ -840,6 +848,7 @@ export interface FileRoutesById {
   '/api/recall/calendar/callback': typeof ApiRecallCalendarCallbackRoute
   '/api/recall/calendar/connect': typeof ApiRecallCalendarConnectRoute
   '/api/recall/calendar/status': typeof ApiRecallCalendarStatusRoute
+  '/api/recall/webhooks/bot': typeof ApiRecallWebhooksBotRoute
   '/api/recall/webhooks/calendar': typeof ApiRecallWebhooksCalendarRoute
   '/api/analytics/unified-meetings/$meetingId/schedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdScheduleRoute
   '/api/analytics/unified-meetings/$meetingId/unschedule': typeof ApiAnalyticsUnifiedMeetingsMeetingIdUnscheduleRoute
@@ -933,6 +942,7 @@ export interface FileRouteTypes {
     | '/api/recall/calendar/callback'
     | '/api/recall/calendar/connect'
     | '/api/recall/calendar/status'
+    | '/api/recall/webhooks/bot'
     | '/api/recall/webhooks/calendar'
     | '/api/analytics/unified-meetings/$meetingId/schedule'
     | '/api/analytics/unified-meetings/$meetingId/unschedule'
@@ -1020,6 +1030,7 @@ export interface FileRouteTypes {
     | '/api/recall/calendar/callback'
     | '/api/recall/calendar/connect'
     | '/api/recall/calendar/status'
+    | '/api/recall/webhooks/bot'
     | '/api/recall/webhooks/calendar'
     | '/api/analytics/unified-meetings/$meetingId/schedule'
     | '/api/analytics/unified-meetings/$meetingId/unschedule'
@@ -1111,6 +1122,7 @@ export interface FileRouteTypes {
     | '/api/recall/calendar/callback'
     | '/api/recall/calendar/connect'
     | '/api/recall/calendar/status'
+    | '/api/recall/webhooks/bot'
     | '/api/recall/webhooks/calendar'
     | '/api/analytics/unified-meetings/$meetingId/schedule'
     | '/api/analytics/unified-meetings/$meetingId/unschedule'
@@ -1167,6 +1179,7 @@ export interface RootRouteChildren {
   ApiRecallCalendarCallbackRoute: typeof ApiRecallCalendarCallbackRoute
   ApiRecallCalendarConnectRoute: typeof ApiRecallCalendarConnectRoute
   ApiRecallCalendarStatusRoute: typeof ApiRecallCalendarStatusRoute
+  ApiRecallWebhooksBotRoute: typeof ApiRecallWebhooksBotRoute
   ApiRecallWebhooksCalendarRoute: typeof ApiRecallWebhooksCalendarRoute
 }
 
@@ -1732,6 +1745,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiRecallWebhooksCalendarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/recall/webhooks/bot': {
+      id: '/api/recall/webhooks/bot'
+      path: '/api/recall/webhooks/bot'
+      fullPath: '/api/recall/webhooks/bot'
+      preLoaderRoute: typeof ApiRecallWebhooksBotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/recall/calendar/status': {
       id: '/api/recall/calendar/status'
       path: '/api/recall/calendar/status'
@@ -2051,6 +2071,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiRecallCalendarCallbackRoute: ApiRecallCalendarCallbackRoute,
   ApiRecallCalendarConnectRoute: ApiRecallCalendarConnectRoute,
   ApiRecallCalendarStatusRoute: ApiRecallCalendarStatusRoute,
+  ApiRecallWebhooksBotRoute: ApiRecallWebhooksBotRoute,
   ApiRecallWebhooksCalendarRoute: ApiRecallWebhooksCalendarRoute,
 }
 export const routeTree = rootRouteImport

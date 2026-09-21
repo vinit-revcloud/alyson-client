@@ -23,15 +23,21 @@ import {
 import type { RecallCalendarWebhookPayload } from "@/lib/recall/recall-calendar-types";
 import { googleOAuthClientId, googleOAuthClientSecret } from "@/lib/recall/google-calendar-oauth.server";
 import {
-  assertRecallCalendarEmailAllowed,
+  assertCalendarConnectEmailAllowed,
+  calendarConnectAllowedDomains,
   getRecallCalendarAllowlist,
-  isRecallCalendarEmailAllowed,
+  isCalendarConnectEmailAllowed,
 } from "@/lib/recall/recall-calendar-allowlist.server";
+
+/** Initial sync on Connect: bots for the next 48h right away; the rest comes from webhooks + heartbeat. */
+const CONNECT_INITIAL_LOOKAHEAD_MS = 48 * 60 * 60 * 1000;
+const CONNECT_INITIAL_MAX_BOTS = 15;
+const CONNECT_INITIAL_TIMEOUT_MS = 20_000;
 import { autoSyncRecallCalendarIfPending } from "@/lib/recall/recall-calendar-sync-cron.server";
 
 export async function getRecallCalendarStatus() {
   const state = await readRecallCalendarState();
-  const allowlisted = getConnectedRecallCalendars(state).filter((c) => isRecallCalendarEmailAllowed(c.email));
+  const allowlisted = getConnectedRecallCalendars(state).filter((c) => isCalendarConnectEmailAllowed(c.email));
   const connected: Array<
     (typeof allowlisted)[number] & {
       pending?: Awaited<ReturnType<typeof previewRecallCalendarPending>>;
@@ -55,8 +61,13 @@ export async function getRecallCalendarStatus() {
     webhookUrl: recallCalendarWebhookUrl(),
     oauthRedirectUri: recallCalendarOAuthRedirectUri(),
     connected,
+    /** Calendars whose Google access lapsed — the owner must click Connect again. */
+    disconnected: state.connections
+      .filter((c) => c.status === "disconnected")
+      .map((c) => ({ email: c.email, recallCalendarId: c.recallCalendarId })),
     total: state.connections.length,
     allowlist: getRecallCalendarAllowlist(),
+    connectDomains: calendarConnectAllowedDomains(),
   };
 }
 
@@ -101,7 +112,7 @@ export async function completeRecallCalendarConnect(code: string, stateToken: st
 
   const tokens = await exchangeGoogleOAuthCode(code, origin);
   const email = tokens.email || "";
-  assertRecallCalendarEmailAllowed(email);
+  assertCalendarConnectEmailAllowed(email);
 
   const { cal, reused } = await resolveRecallCalendarForConnect({
     email,
@@ -111,7 +122,7 @@ export async function completeRecallCalendarConnect(code: string, stateToken: st
   });
 
   const connectedEmail = email || String(cal.platform_email || cal.oauth_email || "connected");
-  assertRecallCalendarEmailAllowed(connectedEmail);
+  assertCalendarConnectEmailAllowed(connectedEmail);
 
   await upsertRecallCalendarConnection({
     recallCalendarId: cal.id,
@@ -121,9 +132,9 @@ export async function completeRecallCalendarConnect(code: string, stateToken: st
     status: "connected",
   });
 
-  // Return quickly — full sync can take minutes and times out on Vercel.
-  // Webhooks + external 5‑min cron (/api/cron/notetaker-transcripts) auto-schedule.
-  const sync: Awaited<ReturnType<typeof syncRecallCalendarEvents>> = {
+  // Attach Alyson to the next 48h of meetings immediately (bounded so the OAuth redirect stays fast).
+  // Later meetings are covered by Recall calendar webhooks + the 5-minute heartbeat sweep.
+  const empty: Awaited<ReturnType<typeof syncRecallCalendarEvents>> = {
     calendarId: cal.id,
     processed: 0,
     scheduled: 0,
@@ -131,10 +142,33 @@ export async function completeRecallCalendarConnect(code: string, stateToken: st
     deleted: 0,
     errors: [],
     ownerEmail: connectedEmail,
-    reason: reused
-      ? "Linked existing Recall calendar — bots auto-schedule via webhook/cron (Sync now is optional)"
-      : "Connected — bots auto-schedule via webhook/cron for upcoming meetings (Sync now is optional)",
   };
+  let sync = empty;
+  try {
+    sync = await Promise.race([
+      syncRecallCalendarEvents({
+        calendarId: cal.id,
+        ownerEmail: connectedEmail,
+        scheduleAll: true,
+        maxNewBots: CONNECT_INITIAL_MAX_BOTS,
+        lookaheadMs: CONNECT_INITIAL_LOOKAHEAD_MS,
+      }),
+      new Promise<typeof empty>((resolve) =>
+        setTimeout(
+          () => resolve({ ...empty, reason: "Initial sync still running — remaining meetings schedule automatically" }),
+          CONNECT_INITIAL_TIMEOUT_MS,
+        ),
+      ),
+    ]);
+  } catch (e) {
+    // Recall may still be importing the calendar right after creation — webhook/heartbeat will catch up.
+    sync = { ...empty, reason: e instanceof Error ? e.message : String(e) };
+  }
+  if (!sync.reason) {
+    sync.reason = reused
+      ? "Linked existing Recall calendar — Alyson auto-joins every meeting with a video link"
+      : "Connected — Alyson auto-joins every meeting with a video link";
+  }
   return { calendarId: cal.id, email: connectedEmail, sync, returnTo: state.returnTo };
 }
 
@@ -170,13 +204,12 @@ export async function syncRecallCalendarNow(
     throw new Error("Calendar is disconnected on Recall — reconnect Google Calendar");
   }
   const ownerEmail = String(cal.platform_email || cal.oauth_email || "");
-  assertRecallCalendarEmailAllowed(ownerEmail);
-  const since =
-    options?.updatedAtGte ?? new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  assertCalendarConnectEmailAllowed(ownerEmail);
   const scheduleAll = Boolean(options?.scheduleAll);
   return syncRecallCalendarEvents({
     calendarId,
-    updatedAtGte: since,
+    // No updatedAtGte → sweep by meeting start time (includes old recurring series).
+    updatedAtGte: options?.updatedAtGte,
     ownerEmail,
     refreshBotConfig: scheduleAll ? false : options?.refreshBotConfig !== false,
     eventIds: options?.eventIds,
@@ -189,7 +222,7 @@ export async function handleRecallCalendarWebhook(payload: RecallCalendarWebhook
   if (payload.event === "calendar.sync_events") {
     const { calendar_id, last_updated_ts } = payload.data;
     const ownerEmail = await resolveRecallCalendarOwnerEmail(calendar_id);
-    if (!isRecallCalendarEmailAllowed(ownerEmail)) {
+    if (!isCalendarConnectEmailAllowed(ownerEmail)) {
       return {
         action: "skipped_not_allowlisted",
         calendarId: calendar_id,
@@ -207,16 +240,10 @@ export async function handleRecallCalendarWebhook(payload: RecallCalendarWebhook
       eventDriven: true,
     });
 
-    let meetingsRefreshed = false;
-    let meetingsReturned = 0;
-    try {
-      const { refreshUnifiedMeetings } = await import("@/lib/unifiedMeetingsService");
-      const summary = await refreshUnifiedMeetings();
-      meetingsRefreshed = true;
-      meetingsReturned = summary.meetingsReturned ?? 0;
-    } catch {
-      // Non-fatal — bots already scheduled above; UI list can catch up on next cron/page load.
-    }
+    // Keep the webhook fast: the old company-wide DWD refresh here could time out the handler and
+    // make Recall retry. The Unified Meetings list refreshes on page load / cron instead.
+    const meetingsRefreshed = false;
+    const meetingsReturned = 0;
 
     if (auto.ran) {
       return {
@@ -261,7 +288,7 @@ export async function handleRecallCalendarWebhook(payload: RecallCalendarWebhook
 export async function registerRecallCalendarFromEnvIfNeeded() {
   const boot = await bootstrapRecallCalendarFromEnv();
   if (!boot) return null;
-  assertRecallCalendarEmailAllowed(boot.email);
+  assertCalendarConnectEmailAllowed(boot.email);
 
   await upsertRecallCalendarConnection({
     recallCalendarId: boot.recallCalendarId,

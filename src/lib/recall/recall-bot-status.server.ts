@@ -99,9 +99,19 @@ async function throttledRecallBotGet(path: string, init?: { timeoutMs?: number; 
 
 function cacheTtlMs(lifecycle: RecallBotLifecycle): number {
   if (lifecycle.fetchError) return LIFECYCLE_CACHE_FAILED_MS;
+  // Ended but the transcript artifact isn't ready yet (typical right after call_ended):
+  // cache briefly so the post-meeting backfill sees the download URL once Recall publishes it.
+  if (TERMINAL_STATUS.has(lifecycle.finalStatusCode) && !lifecycle.transcriptDownloadUrl) {
+    return LIFECYCLE_CACHE_FAILED_MS;
+  }
   return TERMINAL_STATUS.has(lifecycle.finalStatusCode)
     ? LIFECYCLE_CACHE_TERMINAL_MS
     : LIFECYCLE_CACHE_ACTIVE_MS;
+}
+
+/** Drop the cached lifecycle (webhooks tell us the bot state just changed). */
+export function invalidateRecallBotLifecycleCache(botId: string): void {
+  lifecycleCache.delete(String(botId || "").trim());
 }
 
 function getCachedLifecycle(botId: string): RecallBotLifecycle | null {

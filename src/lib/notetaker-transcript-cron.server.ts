@@ -43,6 +43,29 @@ export type NotetakerTranscriptCronResult = {
   };
 };
 
+/**
+ * Only meetings in this window are swept. Older bots are either finalized in S3 already or past
+ * Recall's media retention (RECALL_RECORDING_RETENTION_HOURS, default 48h), so re-checking them
+ * every run only burns the function time budget.
+ */
+function sweepLookbackMs(): number {
+  const n = Number(process.env.NOTETAKER_CRON_LOOKBACK_HOURS || 72);
+  return (Number.isFinite(n) && n > 0 ? n : 72) * 3_600_000;
+}
+
+function isInSweepWindow(iso: string | undefined | null): boolean {
+  const ms = Date.parse(String(iso || ""));
+  if (!Number.isFinite(ms)) return true; // unknown time — keep, cheap to check once
+  const now = Date.now();
+  return ms >= now - sweepLookbackMs() && ms <= now + 30 * 60_000;
+}
+
+/** Stop the per-bot persist loop before the serverless function is killed. */
+function persistBudgetMs(): number {
+  const n = Number(process.env.NOTETAKER_CRON_PERSIST_BUDGET_MS || 150_000);
+  return Number.isFinite(n) && n > 0 ? n : 150_000;
+}
+
 async function collectBotIds(): Promise<{ botIds: Set<string>; warnings: string[] }> {
   const botIds = new Set<string>();
   const warnings: string[] = [];
@@ -61,7 +84,8 @@ async function collectBotIds(): Promise<{ botIds: Set<string>; warnings: string[
     const unified = await listAllUnifiedScheduledBotSessions();
     for (const r of unified) {
       const id = String(r.botId || "").trim();
-      if (id) botIds.add(id);
+      // Skip future bots (nothing to persist yet) and meetings older than the sweep window.
+      if (id && isInSweepWindow(r.meetingStartAt || r.createdAt)) botIds.add(id);
     }
   } catch (e) {
     warnings.push(`unified_scheduled: ${String(e)}`);
@@ -71,7 +95,7 @@ async function collectBotIds(): Promise<{ botIds: Set<string>; warnings: string[
     const s3Sessions = await listPersistedSessionsFromS3({ includeBotIndex: true });
     for (const s of s3Sessions) {
       const id = String(s.botId || "").trim();
-      if (id) botIds.add(id);
+      if (id && isInSweepWindow(s.createdAt)) botIds.add(id);
     }
   } catch (e) {
     warnings.push(`s3_bot_index: ${String(e)}`);
@@ -80,13 +104,17 @@ async function collectBotIds(): Promise<{ botIds: Set<string>; warnings: string[
   return { botIds, warnings };
 }
 
-const MAX_RECALL_BACKFILLS_PER_CRON = 8;
+/** Recall-side transcript downloads per run. Must outpace daily bot volume or media expires (48h). */
+function maxRecallBackfillsPerCron(): number {
+  const n = Number(process.env.NOTETAKER_CRON_MAX_BACKFILLS || 25);
+  return Number.isFinite(n) && n >= 0 ? n : 25;
+}
 
 function isCronFinalizedBot(
   botId: string,
   indexByBotId: Map<
     string,
-    { cronFinalized?: boolean; transcriptKey?: string; transcriptHash?: string; recallCallEndedAt?: string }
+    { cronFinalized?: boolean; transcriptKey?: string; transcriptHash?: string; recallCallEndedAt?: string | null }
   >,
 ): boolean {
   const index = indexByBotId.get(botId);
@@ -123,6 +151,22 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
     scheduledBotActivation = await activateDueScheduledBotSessions();
   } catch (e) {
     warnings.push(`scheduled_bot_activation: ${String(e)}`);
+  }
+
+  // Scheduling bots for upcoming meetings is the most time-critical job — run it before the
+  // transcript sweep so a slow sweep can never starve it (it used to run last and time out).
+  try {
+    const { runUnifiedMeetingsBackgroundMaintenance } = await import("@/lib/unified-meetings-background.server");
+    const um = await runUnifiedMeetingsBackgroundMaintenance();
+    if (um.warnings.length) warnings.push(...um.warnings);
+    if (um.allowlistedBotsScheduled > 0) {
+      warnings.push(`unified_meetings: scheduled ${um.allowlistedBotsScheduled} allowlisted bot(s)`);
+    }
+    if (um.calendarBotsScheduled > 0) {
+      warnings.push(`unified_meetings: scheduled ${um.calendarBotsScheduled} calendar bot(s)`);
+    }
+  } catch (e) {
+    warnings.push(`unified_meetings: ${String(e)}`);
   }
 
   const { botIds, warnings: collectWarnings } = await collectBotIds();
@@ -164,9 +208,21 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
   let errors = 0;
   let recallBackfillsAttempted = 0;
 
+  const loopStartedAt = Date.now();
+  let budgetExhausted = 0;
   for (const botId of botIds) {
+    if (Date.now() - loopStartedAt > persistBudgetMs()) {
+      budgetExhausted += 1;
+      continue;
+    }
     try {
       const skipRecall = isCronFinalizedBot(botId, indexByBotId);
+      if (skipRecall) {
+        // Already finalized with a stored transcript — notes/email catch-up happens in the sweep below.
+        skippedUnchanged += 1;
+        skippedFinalized += 1;
+        continue;
+      }
       const driveResult = await driveSessionPersistToS3(botId, {
         bypassThrottle: true,
         skipRecallFetch: skipRecall,
@@ -202,7 +258,7 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
         }
       } else if (driveResult === "empty") {
         skippedEmpty += 1;
-        if (!skipRecall && recallBackfillsAttempted < MAX_RECALL_BACKFILLS_PER_CRON) {
+        if (!skipRecall && recallBackfillsAttempted < maxRecallBackfillsPerCron()) {
           recallBackfillsAttempted += 1;
           try {
             const { backfillTranscriptFromRecall } = await import("@/lib/recall/recall-transcript-backfill.server");
@@ -235,6 +291,10 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
     }
   }
 
+  if (budgetExhausted > 0) {
+    warnings.push(`persist_budget: ${budgetExhausted} bot(s) deferred to next run`);
+  }
+
   // Unified bots are already in collectBotIds(); skip a second persist pass with Recall GETs.
 
   try {
@@ -252,20 +312,6 @@ export async function runNotetakerTranscriptCron(): Promise<NotetakerTranscriptC
     recallMediaCleanup = await runRecallMediaCleanup();
   } catch (e) {
     warnings.push(`recall_media_cleanup: ${String(e)}`);
-  }
-
-  try {
-    const { runUnifiedMeetingsBackgroundMaintenance } = await import("@/lib/unified-meetings-background.server");
-    const um = await runUnifiedMeetingsBackgroundMaintenance();
-    if (um.warnings.length) warnings.push(...um.warnings);
-    if (um.allowlistedBotsScheduled > 0) {
-      warnings.push(`unified_meetings: scheduled ${um.allowlistedBotsScheduled} allowlisted bot(s)`);
-    }
-    if (um.calendarBotsScheduled > 0) {
-      warnings.push(`unified_meetings: scheduled ${um.calendarBotsScheduled} calendar bot(s)`);
-    }
-  } catch (e) {
-    warnings.push(`unified_meetings: ${String(e)}`);
   }
 
   try {
